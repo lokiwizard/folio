@@ -2,49 +2,73 @@
 
 [简体中文](README.md) · **English**
 
-On page 13 of *IP-Adapter*, the authors put two adapters’ results side by side. The diagram that explains the difference is nine pages back. In Folio, you can pin Figure 2 from page 4, turn to Figure 10, and read the experiment with the architecture still in view.
+**A native macOS research workspace where papers stay alive on your desk.**
 
-Folio is a native macOS PDF reader for research papers. Keep figures beside the text, annotate passages, ask questions with a figure and a quote attached, and export your notes to Markdown.
+Tired of flipping back ten pages to check an architecture diagram while reading ablation tables? Struggling with scattered highlights and messy screenshots when it’s time to prepare for lab meeting?
 
-**v1.0.1** · Apple Silicon · macOS 14 or later · English and Simplified Chinese
+**Folio** is built from the ground up for deep paper reading—pin figures right beside the text, organize thoughts with semantic tags, drag quotes and diagrams straight into AI, and export structured Markdown notes the moment you close the PDF.
 
-[Download for Mac](https://github.com/lokiwizard/folio/releases/download/v1.0.1/Folio-arm64.zip) · [Watch the 19-second demo](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4) · [English subtitles (SRT)](docs/media/folio-ip-adapter.en.srt) · [Open the exported notes](docs/examples/ip-adapter/notes.en.md)
+**v1.0.1** · Native Apple Silicon · macOS 14 or later · English & Simplified Chinese · 3.28 MiB
+
+[Download for Mac](https://github.com/lokiwizard/folio/releases/download/v1.0.1/Folio-arm64.zip) · [Watch the 19-second demo](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4) · [English subtitles (SRT)](docs/media/folio-ip-adapter.en.srt) · [Browse exported notes sample](docs/examples/ip-adapter/notes.en.md)
 
 [![Play the Folio demo: pin a figure, drag it into Ask AI, and draw on the diagram](docs/media/en/folio-film-cover.webp)](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4)
 
-## Reading IP-Adapter in Folio
+---
 
-![Figure 10 on page 13, with the architecture from page 4 and image-prompt examples from page 11 pinned in Folio’s English sidebar.](docs/media/en/ip-adapter-compare.webp)
+## Why Folio
 
-*Click the blue page number on either card to jump back to the original figure.*
+- **Figures that travel with you**: Select any diagram, table, or equation and pin it to the sidebar—read experiments pages later without losing sight of the architecture.
+- **Semantic highlights, not just colors**: Classify passages as *Contribution*, *Question*, *Limitation*, or *Writing reference*, keeping quotes, page links, and comments searchable.
+- **Drag-and-drop multimodal AI**: Drop pinned figures and annotation cards straight into **Ask AI** to ask grounded questions, with live LaTeX math rendering.
+- **Non-destructive notes & one-click Markdown**: Your original PDF stays untouched; export grouped Markdown notes with relative image folders ready for Obsidian or slides.
+- **Pure macOS craft**: Built with Swift, SwiftUI, and AppKit. Works offline, encrypts API keys in your Mac’s Secure Enclave, and stays light, quiet, and fast.
 
-### Take the architecture with you
+---
 
-In the upper-right corner of Figure 2, two cross-attention blocks sit side by side. One has a flame, the other a snowflake. Which one gets trained? Use the dashed rectangle in the toolbar to select the diagram, then click **Pin** beside the selection. Give the card a name you’ll recognize later, such as “Figure 2 · Architecture.”
+## Designed for Deep Reading
 
-![Figure 2 selected on the page, with Pin and Copy Image in the floating toolbar.](docs/media/en/ip-adapter-selection.webp)
+### 01 | Pinned Figures: Keep architectures and equations in view
 
-For a lab meeting, open the pinned image, draw an arrow to the new branch, and type a label next to it. **Copy Image** includes those edits.
+Nothing breaks focus like jumping back and forth across a dozen pages just to verify a diagram. With Folio’s dashed rectangle tool, draw around any figure, table, or equation and click **Pin**. The crop stays anchored in your right sidebar no matter how far ahead you scroll—and clicking its blue page badge jumps straight back to the source.
 
-### Leave a question beside equation (8)
+![Folio showing a paper page alongside pinned figure cards in the right sidebar](docs/media/en/ip-adapter-compare.webp)
 
-On page 6, λ multiplies the image-attention term. Highlight the sentence above the equation, tag it **Question**, and add a comment of your own. “If λ is zero, can the reference image still affect the result?” Searching the card title brings back the passage, page number, and question together.
+*Pinned figure cards stay beside the text. Click any card’s blue page number to return to the original figure.*
 
-![The passage above equation (8) is highlighted. Two sidebar cards hold the shared-query observation and a question about the image weight.](docs/media/en/ip-adapter-annotations.webp)
+Need to present a diagram in lab meeting? Open the pinned preview to annotate directly with pens, arrows, shapes, and text boxes. **Copy Image** carries your local markup straight onto the clipboard, ready for your slides.
 
-### Ask with the evidence attached
+![Selecting a figure on the page with Pin and Copy Image controls in the floating bar](docs/media/en/ip-adapter-selection.webp)
 
-Drag the architecture card onto **Ask AI** and release when the capsule says **Drop here**. Drag the page 6 annotation into the same composer. You can now ask, “When λ is zero in equation (8), which branch in Figure 2 still contributes?” Click the eye to inspect the outgoing message. It includes the original PDF crop and the highlighted passage. Your comments and pen marks stay on your Mac.
+---
 
-![The question composer contains two source chips, one for Figure 2 and one for equation (8).](docs/media/en/ip-adapter-question.webp)
+### 02 | Semantic Marks: Turn every highlight into a lasting index
 
-After you send, the sidebar shows **Thinking**, then displays the reply as it arrives. The demo shows both states, with output from a local Gemma model sped up for the edit.
+Conventional PDF readers give you anonymous color swatches; research demands structure. Folio ships with semantic categories—**Contribution**, **Question**, **Limitation**, **Writing reference**, and **Default**—so every highlight carries intent alongside your personal comment. Search across quotes, card titles, or remarks, and jump straight back to the exact paragraph whenever you need it.
 
-### Close the paper and keep the notes
+![Highlighted passage on the page paired with semantic annotation cards and comments in the sidebar](docs/media/en/ip-adapter-annotations.webp)
 
-Choose **File → Export Markdown notes…**. In this example, the two passages are grouped under **Question** and **Contribution**, and both figures have captions, page numbers, and comments. Keep the Markdown file and its image folder together when sharing them. [Read the exported IP-Adapter notebook](docs/examples/ip-adapter/notes.en.md)
+*Filter by tag, search across notes, expand long passages, or undo deletions—all saved locally while leaving the source PDF unmodified.*
 
-The paper and figures are from *IP-Adapter: Text Compatible Image Prompt Adapter for Text-to-Image Diffusion Models* by Hu Ye, Jun Zhang, Sibo Liu, Xiao Han, and Wei Yang. The card names, comments, and question were written for this walkthrough. [Paper on arXiv](https://arxiv.org/abs/2308.06721)
+---
+
+### 03 | Multimodal Ask AI: Drop in the evidence, get answers in context
+
+Stuck on a derivation or comparing a plot against an earlier figure? Skip the screenshot-and-paste routine. Drag any **figure card** or **annotation card** from the sidebar onto **Ask AI** and release on **Drop here**. Preview exactly what goes out before sending: figure chips attach crisp original PDF crops and mark chips attach the quoted text, while your private comments and pen markup stay on your Mac.
+
+![Ask AI composer holding dragged source chips for a figure and an annotated passage](docs/media/en/ip-adapter-question.webp)
+
+Replies stream directly into the sidebar with bold formatting and native **LaTeX math** rendering. Stop generation anytime, scroll back while streaming, or jump between turns using the timeline dots. Connect OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud, Moonshot, Zhipu, Volcengine Ark, or any custom HTTPS endpoint—your API keys are encrypted with this Mac’s **Secure Enclave**.
+
+---
+
+### 04 | Close the PDF, take everything you learned with you
+
+When you finish reading, choose **File → Export Markdown notes…**. Folio groups your highlights by semantic tag, preserves page numbers, card titles, and comments, and places exported figures in a matching `figures-…` folder with relative links—ready for Obsidian, Notion, or your next group presentation. [Open the exported Markdown notes sample](docs/examples/ip-adapter/notes.en.md)
+
+Folio also includes **lossless page extraction** (custom page ordering and password removal for unlocked PDFs), **independent two-pane / three-pane layout memory**, **adjustable glass intensity with light/dark modes**, and **instant English / Simplified Chinese switching**.
+
+---
 
 ## Install and open a paper
 
@@ -52,7 +76,9 @@ The paper and figures are from *IP-Adapter: Text Compatible Image Prompt Adapter
 2. Drag `Folio.app` into **Applications** in Finder and open it. Quit any earlier version before updating. If your older copy has a Chinese filename, rename it to `Folio.app` before replacing it. Your settings and reading history carry over.
 3. Press **⌘O** or drop a PDF into the window. Reopen it later from **Recently opened**. For an encrypted PDF, enter the document password when prompted.
 
-Reading, annotation, math rendering, and export work offline. Configure an AI service when you want to ask a question. The distributed build is ad hoc signed. If macOS asks you to confirm the developer on first launch, verify where you obtained the app and follow Apple’s instructions for **System Settings → Privacy & Security**. [Apple’s guide to opening apps on Mac](https://support.apple.com/en-us/102445)
+Reading, annotation, math rendering (KaTeX), and page extraction (qpdf) work completely offline. Configure an AI service only when you want to ask a question. The distributed build is ad hoc signed; if macOS asks you to confirm the developer on first launch, verify where you obtained the app and follow Apple’s instructions for **System Settings → Privacy & Security**. [Apple’s guide to opening apps on Mac](https://support.apple.com/en-us/102445)
+
+---
 
 ## Quick reference
 
@@ -108,11 +134,13 @@ The composer can be moved or collapsed. Preview the destination and content befo
 
 </details>
 
+---
+
 ## Build and test
 
 Folio uses Swift, SwiftUI, AppKit, and PDFKit. Page thumbnails and figure previews render on demand in the background. Each paper’s figure-preview cache is configured for up to **50 entries** with a **16 MiB** memory budget. KaTeX and qpdf ship with the app.
 
-On an Apple Silicon Mac with Xcode and the macOS SDK installed, run this from the repository root.
+On an Apple Silicon Mac with Xcode and the macOS SDK installed, run this from the repository root:
 
 ```sh
 ./Scripts/build.sh
@@ -120,7 +148,7 @@ On an Apple Silicon Mac with Xcode and the macOS SDK installed, run this from th
 
 The script produces `dist/Folio.app` and `dist/Folio-arm64.zip`. It uses an ad hoc signature by default. Set `FOLIO_SIGN_IDENTITY` to use your signing certificate.
 
-Run the native-window regression suite in an unlocked macOS session so the test window can receive mouse and keyboard input. Supply a text-based PDF with at least three pages containing the English word `the`, followed by a longer, illustrated PDF.
+Run the native-window regression suite in an unlocked macOS session so the test window can receive mouse and keyboard input. Supply a text-based PDF with at least three pages containing the English word `the`, followed by a longer, illustrated PDF:
 
 ```sh
 ./Scripts/verify.sh "/path/to/paper.pdf" "/path/to/long-illustrated-paper.pdf"
@@ -131,7 +159,7 @@ Tests use a temporary profile to exercise selection, scrolling, drag and drop, t
 <details>
 <summary>Performance measurements for v1.0</summary>
 
-Measured on November 19, 2026, using an Apple M5 Mac with 24 GB of memory, macOS 27.0.1, and an optimized arm64 build. Startup used the 16-page IP-Adapter paper. Paging used a 62-page illustrated survey.
+Measured on November 19, 2026, using an Apple M5 Mac with 24 GB of memory, macOS 27.0.1, and an optimized arm64 build. Startup used a 16-page illustrated paper. Paging used a 62-page illustrated survey.
 
 | Measurement | Result |
 | --- | --- |
