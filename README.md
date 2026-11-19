@@ -8,9 +8,9 @@
 
 **Folio** 专为深度科研阅读而生——将关键图表「钉」在手边随文对照，用语义标签沉淀思考，让原文与截图直接拖拽对话 AI；合上 PDF 时，一键带走结构化的 Markdown 笔记。
 
-**v1.0.1** · Apple Silicon 原生构建 · macOS 14 及以上 · 简体中文 / English · 仅 3.28 MiB
+**v1.0.2** · Apple Silicon 原生构建 · macOS 14 及以上 · 简体中文 / English · 仅 3.28 MiB
 
-[下载 Mac 版](https://github.com/lokiwizard/folio/releases/download/v1.0.1/Folio-arm64.zip)　·　[观看 19 秒演示（MP4）](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4)　·　[浏览导出笔记示例](docs/examples/ip-adapter/notes.md)
+[下载 Mac 版](https://github.com/lokiwizard/folio/releases/download/v1.0.2/Folio-arm64.zip)　·　[观看 19 秒演示（MP4）](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4)　·　[浏览导出笔记示例](docs/examples/ip-adapter/notes.md)
 
 [![播放 Folio 操作演示：框选图表、拖动便签、标注架构图并向 AI 提问](docs/media/folio-film-cover.webp)](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4)
 
@@ -72,7 +72,7 @@
 
 ## 安装与首次打开
 
-1. 下载并解压 [Folio-arm64.zip](https://github.com/lokiwizard/folio/releases/download/v1.0.1/Folio-arm64.zip)。源码构建完成后，也可以在 `dist` 中找到 `Folio.app`。
+1. 下载并解压 [Folio-arm64.zip](https://github.com/lokiwizard/folio/releases/download/v1.0.2/Folio-arm64.zip)。源码构建完成后，也可以在 `dist` 中找到 `Folio.app`。
 2. 在访达中将 `Folio.app` 拖入「应用程序」，双击打开。更新前请先退出旧版。如果旧版使用中文文件名，可以把它改名为 `Folio.app`，再用新版替换。原有设置和阅读记录会自动沿用。
 3. 按 **⌘O** 选择论文，或把 PDF 拖进窗口。下次可从「最近打开」继续阅读。加密 PDF 按提示输入文档密码。
 

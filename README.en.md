@@ -8,9 +8,9 @@ Tired of flipping back ten pages to check an architecture diagram while reading 
 
 **Folio** is built from the ground up for deep paper reading—pin figures right beside the text, organize thoughts with semantic tags, drag quotes and diagrams straight into AI, and export structured Markdown notes the moment you close the PDF.
 
-**v1.0.1** · Native Apple Silicon · macOS 14 or later · English & Simplified Chinese · 3.28 MiB
+**v1.0.2** · Native Apple Silicon · macOS 14 or later · English & Simplified Chinese · 3.28 MiB
 
-[Download for Mac](https://github.com/lokiwizard/folio/releases/download/v1.0.1/Folio-arm64.zip) · [Watch the 19-second demo](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4) · [English subtitles (SRT)](docs/media/folio-ip-adapter.en.srt) · [Browse exported notes sample](docs/examples/ip-adapter/notes.en.md)
+[Download for Mac](https://github.com/lokiwizard/folio/releases/download/v1.0.2/Folio-arm64.zip) · [Watch the 19-second demo](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4) · [English subtitles (SRT)](docs/media/folio-ip-adapter.en.srt) · [Browse exported notes sample](docs/examples/ip-adapter/notes.en.md)
 
 [![Play the Folio demo: pin a figure, drag it into Ask AI, and draw on the diagram](docs/media/en/folio-film-cover.webp)](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4)
 
@@ -72,7 +72,7 @@ Folio also includes **lossless page extraction** (custom page ordering and passw
 
 ## Install and open a paper
 
-1. Download and unzip [Folio-arm64.zip](https://github.com/lokiwizard/folio/releases/download/v1.0.1/Folio-arm64.zip). If you build from source, the app is in `dist/Folio.app`.
+1. Download and unzip [Folio-arm64.zip](https://github.com/lokiwizard/folio/releases/download/v1.0.2/Folio-arm64.zip). If you build from source, the app is in `dist/Folio.app`.
 2. Drag `Folio.app` into **Applications** in Finder and open it. Quit any earlier version before updating. If your older copy has a Chinese filename, rename it to `Folio.app` before replacing it. Your settings and reading history carry over.
 3. Press **⌘O** or drop a PDF into the window. Reopen it later from **Recently opened**. For an encrypted PDF, enter the document password when prompted.
 
