@@ -7,15 +7,20 @@ struct MathAnswer: View {
     @State private var height: CGFloat = 0
 
     static let page = Bundle.main.url(forResource: "answer", withExtension: "html", subdirectory: "Math")
+    // Some providers escape the first hash in a Markdown heading.
+    private static func hasHeading(_ text: String) -> Bool {
+        text.contains("#") && text.range(of: #"(?m)^ {0,3}\\?#{1,6}[ \t]+"#, options: .regularExpression) != nil
+    }
+
     static func containsMarkup(_ text: String) -> Bool {
-        if text.contains("**") || text.contains("__") || text.contains(#"\("#) || text.contains(#"\["#) { return true }
+        if hasHeading(text) || text.contains("**") || text.contains("__") || text.contains(#"\("#) || text.contains(#"\["#) { return true }
         guard let first = text.firstIndex(of: "$") else { return false }
         return text[text.index(after: first)...].contains("$")
     }
 
     static func nativeEmphasis(_ text: String) -> AttributedString? {
         guard text.contains("**") || text.contains("__"),
-              !text.contains("$"), !text.contains(#"\("#), !text.contains(#"\["#),
+              !text.contains("$"), !text.contains(#"\("#), !text.contains(#"\["#), !hasHeading(text),
               let rich = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) else { return nil }
         let visible = String(rich.characters)
         // Fall back to the math-aware renderer for delimiter pairs Foundation leaves in CJK prose.

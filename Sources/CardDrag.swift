@@ -230,16 +230,15 @@ final class CardDrag: ObservableObject {
         guard let target, !target.isEmpty, motion != nil else { clearLift(); return }
         let end = CGRect(x: target.minX + crop.minX - original.minX, y: target.maxY + crop.minY - original.maxY,
                          width: crop.width, height: crop.height)
+        // The model owns the row again on mouse-up. Only the outgoing bitmap is still moving.
+        self.image = nil
+        clearLift()
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.13
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             image.animator().frame = host.convert(end, from: nil)
-        } completionHandler: { [weak self, weak image] in
-            Task { @MainActor in
-                guard let self, let image, self.image === image else { return }
-                self.clearLift()
-            }
-        }
+            image.animator().alphaValue = 0
+        } completionHandler: { image.removeFromSuperview() }
     }
     func cancel() {
         stopTracking()
@@ -344,7 +343,7 @@ final class ReaderWindow: NSWindow {
                 return
             }
         case .leftMouseDown:
-            selectingTextIn = nil
+            endTextSelection()
             if attachedSheet == nil, let paper = paper(at: event.locationInWindow) {
                 makeFirstResponder(paper)
                 paper.focusHighlight(for: event)
@@ -396,12 +395,20 @@ final class ReaderWindow: NSWindow {
         // SwiftUI and PDFKit both track the canvas. Resolve the cursor for the
         // frontmost PDF surface after native mouse handling has finished.
         switch event.type {
+        case .leftMouseDown where selectingTextIn != nil && NSEvent.pressedMouseButtons & 1 == 0:
+            // PDFKit may have consumed the matching release in its nested mouseDown loop.
+            endTextSelection()
         case .leftMouseDragged where selectingTextIn != nil:
             NSCursor.iBeam.set()
         case .mouseMoved, .leftMouseUp:
-            selectingTextIn = nil
-            if attachedSheet == nil, let paper = paper(at: event.locationInWindow) {
-                paper.setCursorFor(paper.areaOfInterest(forMouse: event))
+            endTextSelection()
+            if attachedSheet == nil {
+                var hit = contentHit(at: event.locationInWindow)
+                while let view = hit {
+                    if let editor = view as? NSTextView, editor.isEditable { NSCursor.iBeam.set(); break }
+                    if let paper = view as? PaperView { paper.setCursorFor(paper.areaOfInterest(forMouse: event)); break }
+                    hit = view.superview
+                }
             }
         default: break
         }
@@ -424,9 +431,12 @@ final class ReaderWindow: NSWindow {
         scroll.reflectScrolledClipView(clip)
         return true
     }
-    private func paper(at point: CGPoint) -> PaperView? {
+    private func contentHit(at point: CGPoint) -> NSView? {
         guard let content = contentView, let parent = content.superview else { return nil }
-        var hit = content.hitTest(parent.convert(point, from: nil))
+        return content.hitTest(parent.convert(point, from: nil))
+    }
+    private func paper(at point: CGPoint) -> PaperView? {
+        var hit = contentHit(at: point)
         while let view = hit {
             if let paper = view as? PaperView { return paper }
             hit = view.superview
@@ -434,8 +444,13 @@ final class ReaderWindow: NSWindow {
         return nil
     }
 
-    override func resignKey() {
+    func endTextSelection() {
+        guard let paper = selectingTextIn else { return }
         selectingTextIn = nil
+        paper.reader?.refreshSelectionFrame()
+    }
+    override func resignKey() {
+        endTextSelection()
         resetCardPress()
         cards?.cancel()
         super.resignKey()

@@ -11,9 +11,11 @@ install -m 755 Resources/PageTools/qpdf .build/qpdf
 xcrun swiftc -swift-version 5 -target arm64-apple-macos14.0 -O -whole-module-optimization \
     -module-cache-path .build/ModuleCache -parse-as-library -D VERIFY Sources/*.swift Tests/Verify.swift -o .build/FolioVerify
 work="$(mktemp -d "${TMPDIR:-/tmp}/folio-verify.XXXXXX")"
-python3 - .build/FolioVerify "$work" "$1" "$2" <<'PY'
+/usr/bin/caffeinate -di python3 - .build/FolioVerify "$work" "$1" "$2" <<'PY'
 import os, sys, time, subprocess
+profile = os.path.join(sys.argv[2], "home")
+os.makedirs(profile)
 for options in ([], ["--benchmark"]):
-    env = dict(os.environ, FOLIO_PROCESS_START=str(time.monotonic()))
+    env = dict(os.environ, CFFIXED_USER_HOME=profile, FOLIO_PROCESS_START=str(time.monotonic()))
     subprocess.run(sys.argv[1:] + options, env=env, check=True)
 PY

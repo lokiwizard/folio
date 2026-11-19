@@ -6,9 +6,9 @@ On page 13 of *IP-Adapter*, the authors put two adapters’ results side by side
 
 Folio is a native macOS PDF reader for research papers. Keep figures beside the text, annotate passages, ask questions with a figure and a quote attached, and export your notes to Markdown.
 
-**v1.0** · Apple Silicon · macOS 14 or later · English and Simplified Chinese
+**v1.0.1** · Apple Silicon · macOS 14 or later · English and Simplified Chinese
 
-[Download for Mac](https://github.com/lokiwizard/folio/releases/download/v1.0/Folio-arm64.zip) · [Watch the 19-second demo](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4) · [English subtitles (SRT)](docs/media/folio-ip-adapter.en.srt) · [Open the exported notes](docs/examples/ip-adapter/notes.en.md)
+[Download for Mac](https://github.com/lokiwizard/folio/releases/download/v1.0.1/Folio-arm64.zip) · [Watch the 19-second demo](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4) · [English subtitles (SRT)](docs/media/folio-ip-adapter.en.srt) · [Open the exported notes](docs/examples/ip-adapter/notes.en.md)
 
 [![Play the Folio demo: pin a figure, drag it into Ask AI, and draw on the diagram](docs/media/en/folio-film-cover.webp)](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4)
 
@@ -48,7 +48,7 @@ The paper and figures are from *IP-Adapter: Text Compatible Image Prompt Adapter
 
 ## Install and open a paper
 
-1. Download and unzip [Folio-arm64.zip](https://github.com/lokiwizard/folio/releases/download/v1.0/Folio-arm64.zip). If you build from source, the app is in `dist/Folio.app`.
+1. Download and unzip [Folio-arm64.zip](https://github.com/lokiwizard/folio/releases/download/v1.0.1/Folio-arm64.zip). If you build from source, the app is in `dist/Folio.app`.
 2. Drag `Folio.app` into **Applications** in Finder and open it. Quit any earlier version before updating. If your older copy has a Chinese filename, rename it to `Folio.app` before replacing it. Your settings and reading history carry over.
 3. Press **⌘O** or drop a PDF into the window. Reopen it later from **Recently opened**. For an encrypted PDF, enter the document password when prompted.
 
@@ -120,7 +120,7 @@ On an Apple Silicon Mac with Xcode and the macOS SDK installed, run this from th
 
 The script produces `dist/Folio.app` and `dist/Folio-arm64.zip`. It uses an ad hoc signature by default. Set `FOLIO_SIGN_IDENTITY` to use your signing certificate.
 
-To run the native-window regression suite, supply a text-based PDF with at least three pages containing the English word `the`, followed by a longer, illustrated PDF.
+Run the native-window regression suite in an unlocked macOS session so the test window can receive mouse and keyboard input. Supply a text-based PDF with at least three pages containing the English word `the`, followed by a longer, illustrated PDF.
 
 ```sh
 ./Scripts/verify.sh "/path/to/paper.pdf" "/path/to/long-illustrated-paper.pdf"

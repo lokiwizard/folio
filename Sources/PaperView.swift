@@ -56,8 +56,8 @@ final class PaperView: PDFView {
         marquee.autoresizingMask = [.width, .height]
         addSubview(marquee)
         mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-            if let self, event.window === self.window {
-                DispatchQueue.main.async { [weak self] in self?.reader?.refreshSelectionFrame() }
+            if let self, let window = self.window as? ReaderWindow, event.window === window, window.selectingTextIn === self {
+                window.endTextSelection()
             }
             return event
         }
@@ -280,7 +280,7 @@ final class PaperView: PDFView {
             area = convert(region.rect, from: page).intersection(visibleRect)
         } else if let hit = reader.focusedHighlight, let page = document?.safePage(hit.line.page) {
             area = convert(hit.line.rect, from: page).intersection(visibleRect)
-        } else if reader.hasText, NSEvent.pressedMouseButtons & 1 == 0, let selection = currentSelection {
+        } else if reader.hasText, (window as? ReaderWindow)?.selectingTextIn !== self, let selection = currentSelection {
             guard let page = visiblePages.first(where: { selection.pages.contains($0) &&
                 convert(selection.bounds(for: $0), from: $0).intersects(visibleRect) }) else { return nil }
             area = convert(selection.bounds(for: page), from: page).intersection(visibleRect)

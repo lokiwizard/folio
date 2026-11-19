@@ -29,25 +29,47 @@ private final class ChatFixtureProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
-private final class Pinch: NSEvent {
-    var amount: CGFloat = 0
+// In-process Core Graphics wheel events have no AppKit window, even when the
+// mouse-under-pointer fields are set. Bind gestures to the same window as their coordinates.
+private class WindowGesture: NSEvent {
     var point = CGPoint.zero
     weak var target: NSWindow?
-    var samplePhase: NSEvent.Phase = .changed
-    override var type: NSEvent.EventType { .magnify }
-    override var magnification: CGFloat { amount }
     override var locationInWindow: NSPoint { point }
     override var window: NSWindow? { target }
     override var windowNumber: Int { target?.windowNumber ?? 0 }
-    override var phase: NSEvent.Phase { samplePhase }
     override var timestamp: TimeInterval { ProcessInfo.processInfo.systemUptime }
+}
+
+private final class Pinch: WindowGesture {
+    var amount: CGFloat = 0
+    var samplePhase: NSEvent.Phase = .changed
+    override var type: NSEvent.EventType { .magnify }
+    override var magnification: CGFloat { amount }
+    override var phase: NSEvent.Phase { samplePhase }
+}
+
+private final class LineWheel: WindowGesture {
+    var lines: CGFloat = 0
+    var keys: NSEvent.ModifierFlags = []
+    override var type: NSEvent.EventType { .scrollWheel }
+    override var modifierFlags: NSEvent.ModifierFlags { keys }
+    override var scrollingDeltaY: CGFloat { lines }
+    override var scrollingDeltaX: CGFloat { 0 }
+    override var hasPreciseScrollingDeltas: Bool { false }
+    override var isDirectionInvertedFromDevice: Bool { false }
+    override var phase: NSEvent.Phase { [] }
+    override var momentumPhase: NSEvent.Phase { [] }
 }
 
 @main
 @MainActor
 enum Verify {
-    static func check(_ test: @autoclosure () -> Bool, _ label: String) throws {
-        if !test() { throw ReaderError("FAIL " + label) }
+    static func check(_ test: @autoclosure () -> Bool, _ label: String, details: @autoclosure () -> String = "") throws {
+        if !test() {
+            try requireDesktop()
+            let reason = details()
+            throw ReaderError("FAIL " + label + (reason.isEmpty ? "" : " (" + reason + ")"))
+        }
         print("PASS " + label)
     }
     static func pause(_ seconds: Double) {
@@ -170,7 +192,21 @@ enum Verify {
     }
     static func main() {
         setbuf(stdout, nil)
-        do { try run() } catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+        do {
+            try requireDesktop()
+            try run()
+            try requireDesktop()
+        } catch {
+            fputs(error.localizedDescription + "\n", stderr)
+            exit(1)
+        }
+    }
+    static func requireDesktop() throws {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+              session[kCGSessionOnConsoleKey] as? Bool == true,
+              session["CGSSessionScreenIsLocked"] as? Bool != true else {
+            throw ReaderError("原生交互回归需要已解锁的 macOS 桌面。当前会话无法接收鼠标，本轮未通过。")
+        }
     }
     static func testSavedKey(_ work: URL, reopening: Bool) throws {
         let store = CredentialStore(root: work.appendingPathComponent("test-secrets"))
@@ -193,6 +229,8 @@ enum Verify {
     }
     static func testMath() throws {
         try check(!MathAnswer.containsMarkup("Cost is $20") && MathAnswer.containsMarkup("Energy $E=mc^2$"), "单个货币符号使用原生文字，完整公式启用数学排版")
+        try check(MathAnswer.containsMarkup("\\### 网络输入与输出") && !MathAnswer.containsMarkup("正文里的 ### 符号"),
+                  "仅行首的标题标记触发标题排版")
         let page = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Resources/Math/answer.html")
         var height: CGFloat = 0
         let view = NSHostingView(rootView: MathSurface(page: page, text: #"**行内 $x^2$**，**重点**，独立公式 \[\frac{a}{b}\]，代码 `$x$`，未完成 \(y"#,
@@ -250,6 +288,7 @@ enum Verify {
         app.activate(ignoringOtherApps: true)
         let focusDeadline = Date().addingTimeInterval(2)
         while !window.isKeyWindow && Date() < focusDeadline { pause(0.03) }
+        try check(window.isKeyWindow, "阅读器测试窗口获得前台输入焦点")
         if args.last == "--highlights" {
             try testEmbeddedHighlights(r, window, work)
             if paper.standardizedFileURL != URL(fileURLWithPath: "Tests/Fixtures/embedded-highlights.pdf").standardizedFileURL {
@@ -302,7 +341,12 @@ enum Verify {
         try check(jumpClip.bounds.origin != landed, "回车跳页后可立即用方向键继续阅读")
         r.go(0); pause(0.1)
         try testNavigation(r, window, work)
-        let selection = firstPage.selection(for: NSRange(location: 0, length: min(120, firstPage.numberOfCharacters)))!
+        // A fixed character range can span a vertical arXiv stamp and an entire title page.
+        let titlePageText = firstPage.selection(for: firstPage.bounds(for: first.displayBox))
+        guard let selection = titlePageText?.selectionsByLine().first(where: {
+            let line = $0.bounds(for: firstPage)
+            return line.width > line.height * 3 && ($0.string?.count ?? 0) >= 12
+        }) else { throw ReaderError("未找到用于选区交互的正文行") }
         first.go(to: selection.bounds(for: firstPage), on: firstPage)
         first.setCurrentSelection(selection, animate: false)
         let selectionDeadline = Date().addingTimeInterval(2)
@@ -541,6 +585,7 @@ enum Verify {
         try check(SemanticTag(name: "自定义", ink: .sage).displayName == "自定义" && r.state.excerpts[0].note == "回顾实验设置", "保留用户输入的语言")
         let readBack = try r.store.read("library.json", fallback: Preferences())
         try check(readBack.language == .english && readBack.tags[0].id == r.prefs.tags[0].id, "语言偏好持久化且标签标识稳定")
+        try testChatHeadings(r, window)
         _ = r.close()
         try capture(window, work.appendingPathComponent("library.png"))
         try testEmbeddedHighlights(r, window, work)
@@ -749,6 +794,42 @@ enum Verify {
         if editor.selectedRange().length == 0 { print("提问框文字选择", editor.selectedRange(), start, end, beforeTextDrag, afterTextDrag) }
         try check(editor.selectedRange().length > 0 && abs(afterTextDrag.minX - beforeTextDrag.minX) < 1 && abs(afterTextDrag.minY - beforeTextDrag.minY) < 1, "在浮窗输入框中拖动选择文字")
     }
+    static func testChatHeadings(_ r: Reader, _ window: NSWindow) throws {
+        r.resetChat(); r.panel = .chat; r.showRight = true
+        func answerView(in view: NSView) -> WKWebView? {
+            if let web = view as? WKWebView { return web }
+            return view.subviews.lazy.compactMap { answerView(in: $0) }.first
+        }
+        func checkHeading(_ condition: String, _ label: String) throws {
+            let deadline = Date().addingTimeInterval(8)
+            var matched = false
+            while !matched && Date() < deadline {
+                pause(0.05); paint(window)
+                if let transcript = (window as? ReaderWindow)?.transcriptMarker?.enclosingScrollView,
+                   let web = answerView(in: transcript), web.bounds.height > 10 {
+                    web.evaluateJavaScript(condition) { value, _ in
+                        if value as? Bool == true { matched = true }
+                    }
+                }
+            }
+            try check(matched, label)
+        }
+
+        r.sending = true
+        r.partialAnswer = "### 网络"
+        try checkHeading("answer.querySelector('h3')?.textContent === '网络'", "流式标题在正文到达前即可排版")
+        r.partialAnswer += "输入与输出\n输入 $x$，输出 **预测值**。"
+        try checkHeading("answer.querySelector('h3')?.textContent === '网络输入与输出' && !!answer.querySelector('math') && answer.querySelector('strong')?.textContent === '预测值'",
+                         "补全三级标题时保留公式、加粗和标题后的正文")
+
+        let stored = "\\### **网络输入与输出**" + "\n```md\n### 原样显示\n```\n正文里的 ### 也保留"
+        let session = PaperChat(messages: [ChatLine(role: "user", text: "结构"), ChatLine(role: "assistant", text: stored)])
+        r.openChat(try JSONDecoder().decode(PaperChat.self, from: JSONEncoder().encode(session)))
+        try checkHeading("""
+            answer.querySelectorAll('h3').length === 1 && answer.querySelector('h3 > strong')?.textContent === '网络输入与输出'
+                && answer.querySelector('code')?.textContent.includes('### 原样显示') && answer.textContent.endsWith('正文里的 ### 也保留')
+            """, "重开历史时兼容转义标题，代码和行内井号保持原文")
+    }
     static func testChatWheel(_ r: Reader, _ window: NSWindow) throws {
         let previous = r.panel
         r.panel = .chat; r.showRight = true
@@ -927,6 +1008,8 @@ enum Verify {
         observer.cancel()
         try check((paper.currentSelection?.string?.count ?? 0) >= 2, "按下后拖动能够选中 PDF 原文")
         try check(sawTextCursor, "拖选正文时保持工字形指针")
+        try check(r.selectionFrame != nil && (window as? ReaderWindow)?.selectingTextIn == nil,
+                  "原生拖选松手后立即恢复选区工具栏，无需再移动鼠标")
         paper.clearSelection()
         window.sendEvent(event(.mouseMoved, margin))
         try check(NSCursor.current == .arrow, "指针离开文字进入页边留白时恢复箭头")
@@ -1061,7 +1144,7 @@ enum Verify {
             throw ReaderError("未找到可滚动的长对话时间线")
         }
         let prior = longScroll.contentView.bounds.minY
-        for _ in 0..<4 { try imageWheel(window, at: onRail, delta: -9, flags: []) }
+        for _ in 0..<4 { imageWheel(window, at: onRail, delta: -9, flags: []) }
         let railOffset = rail.contentView.bounds.minY
         try check(rail.contentView.bounds.width >= 24, "常显系统滚动条时保留圆点的完整点击宽度")
         try check(railOffset > 30 && abs(prior - longScroll.contentView.bounds.minY) < 3, "长时间线可独立滚动查找更晚的提问")
@@ -1269,19 +1352,15 @@ enum Verify {
         pause(0.1)
     }
 
-    static func imageWheel(_ window: NSWindow, at point: CGPoint, delta: Int32, flags: CGEventFlags) throws {
-        guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0) else {
-            throw ReaderError("无法创建图片滚轮事件")
-        }
-        let screen = window.convertPoint(toScreen: point)
-        cg.location = CGPoint(x: screen.x, y: NSScreen.screens[0].frame.maxY - screen.y)
-        cg.flags = flags
-        for field in [CGEventField.mouseEventWindowUnderMousePointer, .mouseEventWindowUnderMousePointerThatCanHandleThisEvent] {
-            cg.setIntegerValueField(field, value: Int64(window.windowNumber))
-        }
-        guard let event = NSEvent(cgEvent: cg) else { throw ReaderError("无法转换图片滚轮事件") }
-        if window is ReaderWindow { window.sendEvent(event) }
-        else { NSApp.sendEvent(event) }
+    static func imageWheel(_ window: NSWindow, at point: CGPoint, delta: CGFloat, flags: NSEvent.ModifierFlags,
+                           beforeDispatch: () -> Void = {}) {
+        let event = LineWheel()
+        event.target = window
+        event.point = point
+        event.lines = delta
+        event.keys = flags
+        beforeDispatch()
+        NSApp.sendEvent(event)
         pause(0.12)
     }
 
@@ -1315,7 +1394,9 @@ enum Verify {
             var editor: NSTextView?
             repeat {
                 pause(0.05)
-                editor = NSApp.windows.filter { $0.isVisible }.compactMap { $0.firstResponder as? NSTextView }.first { $0.isEditable && !$0.isFieldEditor }
+                if let input = sheet.firstResponder as? NSTextView, input.isEditable, input.isDescendant(of: canvas) {
+                    editor = input
+                }
             } while editor == nil && Date() < deadline
             guard let editor, let window = editor.window else { throw ReaderError("文本框未获得输入焦点") }
             try check(window === sheet && editor.isDescendant(of: canvas), "插入光标位于图片内的文本框")
@@ -1366,9 +1447,17 @@ enum Verify {
                   abs(newOrigin.y - oldOrigin.y + 0.03 * canvas.imageRect.height) < 1 && sheet.firstResponder === inline,
                   "输入期间抓住边框移动，文字光标随框一起保留")
         let zoomTarget = inline.convert(CGPoint(x: 8, y: 8), to: nil)
-        try imageWheel(sheet, at: zoomTarget, delta: 1, flags: .maskControl)
+        // Window stacking can change between recording the event and dispatching it.
+        let screenPoint = sheet.convertPoint(toScreen: zoomTarget)
+        let overlay = NSPanel(contentRect: CGRect(x: screenPoint.x - 12, y: screenPoint.y - 12, width: 24, height: 24),
+                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        overlay.level = .floating
+        imageWheel(sheet, at: zoomTarget, delta: 1, flags: .control) { overlay.orderFront(nil) }
+        overlay.orderOut(nil)
         try check(abs(canvas.zoom - 1.2) < 0.001 && sheet.firstResponder === inline, "输入文字时 Ctrl 滚轮可放大图片并保留插入光标")
-        try imageWheel(sheet, at: zoomTarget, delta: -1, flags: .maskControl)
+        imageWheel(sheet, at: zoomTarget, delta: -1, flags: .control)
+        try check(abs(canvas.zoom - 1) < 0.001 && sheet.firstResponder === inline, "反向滚轮恢复原图比例并保留输入焦点",
+                  details: "zoom=\(canvas.zoom), keyWindow=\(sheet.isKeyWindow)")
         func fontField(in view: NSView) -> NSComboBox? {
             if view.identifier?.rawValue == "pin.markup.fontSize" { return view as? NSComboBox }
             return view.subviews.lazy.compactMap { fontField(in: $0) }.first
@@ -1380,7 +1469,8 @@ enum Verify {
         fieldEditor.insertText("18.5", replacementRange: fieldEditor.selectedRange())
         key(sheet, code: 36, chars: "\r", flags: [])
         try check(sheet.firstResponder === inline && abs((inline.font?.pointSize ?? 0) - 18.5) < 0.01,
-                  "输入自定义小数字号后可回到同一空白文本框继续打字")
+                  "输入自定义小数字号后可回到同一空白文本框继续打字",
+                  details: "zoom=\(canvas.zoom), font=\(inline.font?.pointSize ?? 0), field=\(font.stringValue), inlineFocus=\(sheet.firstResponder === inline), keyWindow=\(sheet.isKeyWindow)")
         inline.insertText("实验说明", replacementRange: inline.selectedRange())
         mouse(CGPoint(x: 0.94, y: 0.9), CGPoint(x: 0.94, y: 0.9))
         if pin().drawing?.last?.label?.string != "实验说明" || !canvas.subviews.allSatisfy({ !($0 is PinInlineTextBox) }) {
@@ -1411,7 +1501,8 @@ enum Verify {
         try check(pin().drawing?.last?.label?.string == original, "撤销文字编辑恢复多行内容")
         mouse(p, p, clicks: 2)
         try enterText("取消输入", save: false)
-        try check(pin().drawing?.last?.label?.string == original, "取消文字编辑保留原文")
+        try check(pin().drawing?.last?.label?.string == original && canvas.zoomControls?.editingText == false &&
+                  sheet.firstResponder === canvas, "取消文字编辑保留原文并将焦点还给画布")
         mouse(p, CGPoint(x: p.x - 0.15, y: p.y + 0.15))
         try check(pin().drawing?.last?.points != label.points && pin().drawing?.last?.label?.string == original, "手型移动文本框保留文字")
         var textSize: CGSize { canvas.imageRect.size }
@@ -1522,13 +1613,13 @@ enum Verify {
         let beforeZoom = unitAnchor()
         r.copyPin(id)
         let unzoomedCopy = clipboard.data(forType: .png)
-        try imageWheel(sheet, at: target, delta: 1, flags: .maskControl)
+        imageWheel(sheet, at: target, delta: 1, flags: .control)
         if abs(canvas.zoom - 1.2) >= 0.001 || dist(beforeZoom, unitAnchor()) >= 0.005 {
             print("图片滚轮定位", canvas.zoom, beforeZoom, unitAnchor(), canvas.bounds, rect)
         }
         try check(abs(canvas.zoom - 1.2) < 0.001 && dist(beforeZoom, unitAnchor()) < 0.005 && r.pdf!.scaleFactor == paperZoom,
                   "Ctrl 滚轮以指针为中心放大便签，正文比例保持独立")
-        try imageWheel(sheet, at: target, delta: -1, flags: .maskControl)
+        imageWheel(sheet, at: target, delta: -1, flags: .control)
         try check(abs(canvas.zoom - 1) < 0.001, "Ctrl 反向滚动缩小图片")
         let pinch = Pinch()
         pinch.point = target
@@ -1541,8 +1632,8 @@ enum Verify {
         try check(abs(canvas.zoom - 1.25) < 0.001, "⌘+ 放大图片")
         canvas.setZoom(4, at: anchor)
         let beforePan = canvas.imageRect.origin
-        let shift: CGEventFlags = canvas.imageRect.height > canvas.bounds.height + 1 ? [] : .maskShift
-        try imageWheel(sheet, at: target, delta: 1, flags: shift)
+        let shift: NSEvent.ModifierFlags = canvas.imageRect.height > canvas.bounds.height + 1 ? [] : .shift
+        imageWheel(sheet, at: target, delta: 1, flags: shift)
         try check(canvas.zoom == 4 && canvas.imageRect.origin != beforePan, "放大后普通滚轮平移可视范围")
         choose(.pen)
         key(sheet, code: 49, chars: " ", flags: [])
@@ -1667,23 +1758,18 @@ enum Verify {
             let original = ids()
             guard let first = findMarker(root, original[0]), let second = findMarker(root, original[1]),
                   let drag = first.drag, first.enclosingScrollView != nil else { throw ReaderError("未找到卡片或其滚动区域") }
-            let clip = first.enclosingScrollView!.contentView
-            let visibleColumn = clip.convert(clip.bounds, to: nil).insetBy(dx: 0, dy: -clip.bounds.height)
-            let snapshotOrigin = first.cardFrame.intersection(visibleColumn)
-            let start = CGPoint(x: first.cardFrame.midX, y: first.cardFrame.midY)
-            let dest = CGPoint(x: start.x + 26, y: second.cardFrame.midY - 6)
             if list == .pins {
                 guard let thumbnail = (window as? ReaderWindow)?.thumbnailSurfaces.allObjects.first(where: { !$0.visibleRect.isEmpty }),
                       let pdf = r.pdf else { throw ReaderError("未找到侧栏便签缩略图") }
                 let point = thumbnail.convert(CGPoint(x: thumbnail.visibleRect.midX, y: thumbnail.visibleRect.midY), to: nil)
                 let paperScale = pdf.scaleFactor
-                try imageWheel(window, at: point, delta: 1, flags: .maskControl)
+                imageWheel(window, at: point, delta: 1, flags: .control)
                 try check(abs(thumbnail.zoom - 1.2) < 0.001 && pdf.scaleFactor == paperScale, "侧栏图片接受 Ctrl 滚轮，正文缩放独立")
-                try imageWheel(window, at: point, delta: -1, flags: .maskControl)
+                imageWheel(window, at: point, delta: -1, flags: .control)
                 try check(abs(thumbnail.zoom - 1) < 0.001, "侧栏图片反向滚动恢复全图")
-                try imageWheel(window, at: point, delta: -1, flags: .maskControl)
+                imageWheel(window, at: point, delta: -1, flags: .control)
                 try check(thumbnail.zoom < 1 && pdf.scaleFactor == paperScale, "侧栏图片也可以缩小到适合尺寸以下")
-                try imageWheel(window, at: point, delta: 1, flags: .maskControl)
+                imageWheel(window, at: point, delta: 1, flags: .control)
                 send(.leftMouseDown, point)
                 send(.leftMouseUp, point)
                 pause(0.25)
@@ -1693,13 +1779,22 @@ enum Verify {
                     throw ReaderError("单击缩略图未打开大图")
                 }
                 try check(viewer.isVisible, "在侧栏缩放后，单击同一图片进入标注编辑器")
+                viewer.makeKeyAndOrderFront(nil)
                 let viewerSize = viewer.contentView!.bounds.size
                 clickSheet(viewer, CGPoint(x: viewerSize.width - 43, y: viewerSize.height - 31))
-                pause(0.2)
+                let deadline = Date().addingTimeInterval(2)
+                while window.attachedSheet != nil && Date() < deadline { pause(0.02) }
+                try check(window.attachedSheet == nil, "关闭便签预览并返回阅读窗口")
             }
+            paint(window)
+            let clip = first.enclosingScrollView!.contentView
+            let visibleColumn = clip.convert(clip.bounds, to: nil).insetBy(dx: 0, dy: -clip.bounds.height)
+            let snapshotOrigin = first.cardFrame.intersection(visibleColumn)
+            let start = CGPoint(x: first.cardFrame.midX, y: first.cardFrame.midY)
+            let dest = CGPoint(x: start.x + 26, y: second.cardFrame.midY - 6)
             try check(drag.card(at: start, in: window) === first, "可从卡片正文中央起拖")
-            send(.leftMouseDown, start)
-            send(.leftMouseDragged, dest)
+            NSApp.sendEvent(mouse(.leftMouseDown, start))
+            NSApp.sendEvent(mouse(.leftMouseDragged, dest))
             try check(ids() == original && drag.placement?.target.id == original[1] && drag.placement?.after == true,
                       "拖动时显示插入位置且保留已保存顺序")
             pause(0.18); paint(window)
@@ -1707,9 +1802,9 @@ enum Verify {
             guard let layers = root.superview?.subviews, let lift = layers.compactMap({ $0 as? LiftedCard }).last,
                   layers.last is CardDeletionFeedback else { throw ReaderError("浮动卡片或边缘提示层缺失") }
             try check(abs(lift.convert(lift.bounds, to: nil).midX - snapshotOrigin.midX - 26) < 2, "浮层横向跟随抓取点，显示在其他卡片上方")
-            send(.leftMouseUp, dest)
-            pause(0.22)
+            NSApp.sendEvent(mouse(.leftMouseUp, dest))
             try check(ids() == Array(original.reversed()) && drag.placement == nil, "松手后完成卡片落位")
+            paint(window)
             guard let handle = findMarker(root, original[1]) else { throw ReaderError("重新排序后未找到卡片") }
             var next = CGPoint(x: handle.cardFrame.maxX - 18, y: handle.cardFrame.maxY - 15)
             send(.leftMouseDown, next)
@@ -1770,6 +1865,8 @@ enum Verify {
                 try check(canvas.tool == .hand, "打开便签默认使用手型浏览或选择标注")
                 NSApp.activate(ignoringOtherApps: true)
                 sheet.makeKeyAndOrderFront(nil)
+                let focusDeadline = Date().addingTimeInterval(2)
+                while !sheet.isKeyWindow && Date() < focusDeadline { pause(0.02) }
                 chooseMarkupTool(.pen, in: sheet)
                 try check(canvas.tool == .pen && sheet.isKeyWindow, "标注工具栏切换画笔并由当前便签窗口接收输入")
                 let beforeDrawing = clipboard.data(forType: .png)
@@ -1912,11 +2009,17 @@ enum Verify {
                 try capture(window, work.appendingPathComponent("card-over-composer.png"), chrome: true)
                 send(.leftMouseDragged, start)
                 try check(!drag.overChat && lift.bounds.size == full && r.attachments.isEmpty, "拖回侧栏恢复卡片原尺寸")
-                send(.leftMouseDragged, point); send(.leftMouseUp, point); pause(0.22); paint(window)
+                send(.leftMouseDragged, point); send(.leftMouseUp, point)
+                let landingDeadline = Date().addingTimeInterval(2)
+                while (lift.superview != nil || !(window.firstResponder is NSTextView)) && Date() < landingDeadline { pause(0.02) }
+                paint(window)
                 try check(lift.superview == nil && drag.placement == nil, "引用后收起临时预览并清除拖动状态")
                 try check(r.panel == .notes && r.composerOpen && r.attachments.contains { $0.id == picked } && ids() == placed, "批注拖入页面提问框且侧栏保留批注列表")
                 guard let question = window.firstResponder as? NSTextView else { throw ReaderError("提问框未获得输入焦点") }
-                let fieldCenter = question.convert(CGPoint(x: question.bounds.midX, y: question.bounds.midY), to: nil)
+                let field = question.bounds.intersection(question.visibleRect)
+                let fieldCenter = question.convert(CGPoint(x: field.midX, y: field.midY), to: nil)
+                let hit = root.hitTest(root.superview!.convert(fieldCenter, from: nil))
+                try check(!field.isEmpty && (hit === question || hit?.isDescendant(of: question) == true), "提问框可见区域实际命中原生文字编辑器")
                 NSCursor.arrow.set()
                 window.sendEvent(mouse(.mouseMoved, fieldCenter))
                 try check(NSCursor.current == .iBeam, "鼠标进入浮窗提问框显示工字形指针")

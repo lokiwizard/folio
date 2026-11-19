@@ -2,16 +2,39 @@
 const answer = document.getElementById("answer");
 let previousFormulas = new Map();
 
+const inlineTokens = /\\[\*_]|\*\*|__|`+|\\\$|\$\$|\\\(|\\\[|\$(?!\s)/;
+const blockTokens = /^ {0,3}\\?(#{1,6})[ \t]+([^\r\n]*)(?:\r\n?|\n|$)|^ {0,3}(`{3,}|~{3,})[^\r\n]*(?:\r\n?|\n|$)/;
+const answerTokens = new RegExp(blockTokens.source + "|" + inlineTokens.source, "gm");
+
 // Build prose and code as text nodes. Only KaTeX creates math markup.
-function renderAnswer(source, dark) {
-    document.documentElement.style.colorScheme = dark ? "dark" : "light";
-    const nodes = document.createDocumentFragment();
-    const formulas = new Map();
+function appendMarkdown(source, nodes, formulas, allowBlocks) {
+    const tokens = allowBlocks ? new RegExp(answerTokens) : new RegExp(inlineTokens, "g");
     let target = nodes;
     let emphasis = "";
-    const tokens = /\\[\*_]|\*\*|__|`+|\\\$|\$\$|\\\(|\\\[|\$(?!\s)/g;
     let start = 0, match;
     while ((match = tokens.exec(source))) {
+        const [, hashes, title, fence] = match;
+        if (hashes) {
+            target.append(source.slice(start, match.index));
+            if (emphasis) nodes.append(emphasis, ...target.childNodes);
+            target = nodes;
+            emphasis = "";
+            const heading = document.createElement("h" + hashes.length);
+            appendMarkdown(title.replace(/[ \t]+#+[ \t]*$/, "").trimEnd(), heading, formulas, false);
+            nodes.append(heading);
+            start = tokens.lastIndex;
+            continue;
+        }
+        if (fence) {
+            const closing = new RegExp("^ {0,3}" + fence[0] + "{" + fence.length + ",}[ \\t]*(?=\\r?$)", "gm");
+            closing.lastIndex = tokens.lastIndex;
+            tokens.lastIndex = closing.exec(source) ? closing.lastIndex : source.length;
+            const code = document.createElement("code");
+            code.textContent = source.slice(match.index, tokens.lastIndex);
+            target.append(source.slice(start, match.index), code);
+            start = tokens.lastIndex;
+            continue;
+        }
         const open = match[0];
         if (open === "\\$") continue;
         if (open === "**" || open === "__") {
@@ -77,6 +100,13 @@ function renderAnswer(source, dark) {
     }
     target.append(source.slice(start));
     if (emphasis) nodes.append(emphasis, ...target.childNodes);
+}
+
+function renderAnswer(source, dark) {
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    const nodes = document.createDocumentFragment();
+    const formulas = new Map();
+    appendMarkdown(source, nodes, formulas, true);
     previousFormulas = formulas;
     answer.replaceChildren(nodes);
 }
