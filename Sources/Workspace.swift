@@ -17,8 +17,11 @@ struct Workspace: View {
             if let pdf = r.pdf {
                 GeometryReader { size in
                 let divider = ResizeEdge.thickness
-                let navLimit = max(180, min(360, size.size.width - Self.minimumPaperWidth - (r.showRight ? 246 : 0)))
-                let navWidth = min(navLimit, max(180, liveNavigation ?? preferredNavWidth))
+                let sideSpace = size.size.width - Self.minimumPaperWidth
+                let navLimit = max(180, min(360, sideSpace - (r.showRight ? 246 : 0)))
+                let requestedNav = min(navLimit, max(180, liveNavigation ?? preferredNavWidth))
+                // In a narrow window the navigation pane can yield space during an inspector drag.
+                let navWidth = min(requestedNav, max(180, sideSpace - (liveInspector ?? 0)))
                 HStack(spacing: 0) {
                     if r.showLeft {
                         NavigationPane(r: r).id(ObjectIdentifier(pdf)).frame(width: navWidth - divider).clipped()
@@ -54,19 +57,26 @@ struct Workspace: View {
                     if r.showRight {
                         // Stored sidebar widths include the splitter. Only the visible panes share the ratio.
                         let paneSpace = max(1, size.size.width - divider)
-                        let limit = min(divider + paneSpace / 2,
-                                        size.size.width - (r.showLeft ? navWidth : 0) - Self.minimumPaperWidth)
+                        let dragLimit = min(divider + paneSpace / 2, sideSpace - (r.showLeft ? 180 : 0))
+                        let limit = min(dragLimit, sideSpace - (r.showLeft ? navWidth : 0))
                         let preferred = !r.showLeft && twoPaneInspectorFraction > 0
                             ? divider + paneSpace * twoPaneInspectorFraction : inspectorWidth
                         let width = max(246, min(liveInspector ?? preferred, limit))
-                        ResizeEdge(width: width, limit: limit, navigation: false) { value, ended in
-                            if ended {
-                                if r.showLeft { inspectorWidth = value }
-                                else { twoPaneInspectorFraction = (value - divider) / paneSpace }
-                                liveInspector = nil
-                            } else { liveInspector = value }
-                        }.frame(width: divider)
-                        Inspector(r: r, drag: cardDrag).id(ObjectIdentifier(pdf)).frame(width: width - divider).transition(.opacity)
+                        Inspector(r: r, drag: cardDrag).id(ObjectIdentifier(pdf))
+                            .frame(width: width - divider).padding(.leading, divider)
+                            .overlay(alignment: .leading) {
+                                // Center the grab area on the visible seam, above every inspector tab.
+                                // The outer half lives in the gutter so the PDF scroller stays accessible.
+                                ResizeEdge(width: width, limit: dragLimit, navigation: false) { value, ended in
+                                    if ended {
+                                        if r.showLeft {
+                                            if value > sideSpace - requestedNav { preferredNavWidth = max(180, sideSpace - value) }
+                                            inspectorWidth = value
+                                        } else { twoPaneInspectorFraction = (value - divider) / paneSpace }
+                                        liveInspector = nil
+                                    } else { liveInspector = value }
+                                }.frame(width: divider * 2)
+                            }.transition(.opacity)
                     }
                 }
                 }
@@ -91,7 +101,7 @@ struct Workspace: View {
 
 }
 
-private struct ResizeEdge: NSViewRepresentable {
+struct ResizeEdge: NSViewRepresentable {
     static let thickness: CGFloat = 8
     let width: CGFloat
     let limit: CGFloat
@@ -106,12 +116,18 @@ private struct ResizeEdge: NSViewRepresentable {
         private var start: (x: CGFloat, width: CGFloat)?
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-        override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            addCursorRect(visibleRect, cursor: .resizeLeftRight)
+        }
         override func draw(_ dirtyRect: NSRect) {
             NSColor.separatorColor.setFill()
             CGRect(x: bounds.midX, y: 0, width: 1 / (window?.backingScaleFactor ?? 1), height: bounds.height).fill()
         }
-        override func mouseDown(with event: NSEvent) { start = (event.locationInWindow.x, width) }
+        override func mouseDown(with event: NSEvent) {
+            start = (event.locationInWindow.x, width)
+            NSCursor.resizeLeftRight.set()
+        }
         private func update(_ event: NSEvent, ended: Bool) {
             guard let start else { return }
             let delta = event.locationInWindow.x - start.x
@@ -119,7 +135,10 @@ private struct ResizeEdge: NSViewRepresentable {
             resize?(result, ended)
             if ended { self.start = nil }
         }
-        override func mouseDragged(with event: NSEvent) { update(event, ended: false) }
+        override func mouseDragged(with event: NSEvent) {
+            update(event, ended: false)
+            NSCursor.resizeLeftRight.set()
+        }
         override func mouseUp(with event: NSEvent) { update(event, ended: true) }
     }
     func makeNSView(context: Context) -> Handle { Handle() }

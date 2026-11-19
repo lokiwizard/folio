@@ -82,6 +82,24 @@ enum Verify {
             }
         }
     }
+    // A window number routes a synthetic event, but AppKit may use the first click
+    // in an inactive window for activation and never deliver it to the canvas.
+    static func focusForInput(_ window: NSWindow) throws {
+        func ready() -> Bool { NSApp.isActive && NSApp.keyWindow === window && NSRunningApplication.current.isActive }
+        guard !ready() else { return }
+        try requireDesktop()
+        guard window.isVisible else { throw ReaderError("测试输入目标窗口已隐藏") }
+        let deadline = Date().addingTimeInterval(4)
+        repeat {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            let nextRequest = min(deadline, Date().addingTimeInterval(0.3))
+            while !ready() && Date() < nextRequest { pause(0.02) }
+        } while !ready() && Date() < deadline
+        guard ready() else {
+            throw ReaderError("测试窗口未获得前台输入焦点，未发送事件（目标窗口 \(window.windowNumber)，活动窗口 \(NSApp.keyWindow?.windowNumber ?? -1)）")
+        }
+    }
     static func paint(_ window: NSWindow) {
         window.contentView?.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
@@ -285,9 +303,7 @@ enum Verify {
         window.setContentSize(NSSize(width: 1140, height: 740))
         window.center()
         window.makeKeyAndOrderFront(nil)
-        app.activate(ignoringOtherApps: true)
-        let focusDeadline = Date().addingTimeInterval(2)
-        while !window.isKeyWindow && Date() < focusDeadline { pause(0.03) }
+        try focusForInput(window)
         try check(window.isKeyWindow, "阅读器测试窗口获得前台输入焦点")
         if args.last == "--highlights" {
             try testEmbeddedHighlights(r, window, work)
@@ -894,9 +910,11 @@ enum Verify {
         let left = r.showLeft, right = r.showRight, originalFrame = window.frame
         let defaults = UserDefaults.standard
         let oldWidth = defaults.object(forKey: "inspectorWidth"), oldFraction = defaults.object(forKey: "twoPaneInspectorFraction")
+        let oldNav = defaults.object(forKey: "navigationWidth")
         defer {
             defaults.set(oldWidth, forKey: "inspectorWidth")
             defaults.set(oldFraction, forKey: "twoPaneInspectorFraction")
+            defaults.set(oldNav, forKey: "navigationWidth")
             window.setFrame(originalFrame, display: true)
             r.showLeft = left; r.showRight = right; pause(0.15)
         }
@@ -907,8 +925,8 @@ enum Verify {
             return node.subviews.lazy.compactMap { handle($0, id) }.first
         }
         func center(_ grip: NSView) -> CGPoint { grip.convert(CGPoint(x: grip.bounds.midX, y: grip.bounds.midY), to: nil) }
-        func drag(_ grip: NSView, by dx: CGFloat) {
-            let p = center(grip)
+        func drag(_ grip: NSView, by dx: CGFloat, from point: CGPoint? = nil) {
+            let p = point ?? center(grip)
             for (type, shift) in [(NSEvent.EventType.leftMouseDown, 0.0), (.leftMouseDragged, dx / 2), (.leftMouseDragged, dx), (.leftMouseUp, dx)] {
                 let event = NSEvent.mouseEvent(with: type, location: CGPoint(x: p.x + shift, y: p.y), modifierFlags: [],
                                                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
@@ -933,44 +951,90 @@ enum Verify {
             guard let grip = handle(root, "inspector.splitter") else { throw ReaderError("右栏分隔线未显示") }
             return grip
         }
-        func rightWidth() throws -> CGFloat {
-            let grip = try inspectorGrip()
-            return root.convert(root.bounds, to: nil).maxX - grip.convert(grip.bounds, to: nil).maxX
+        func rightWidth() -> CGFloat {
+            root.convert(root.bounds, to: nil).maxX - paper.convert(paper.bounds, to: nil).maxX - ResizeEdge.thickness
         }
         func layout() { pause(0.15); paint(window) }
-        let threePaneWidth = try rightWidth()
+        func testInspectorTabs() throws {
+            let panel = r.panel, open = r.composerOpen, pins = r.state.pins, excerpts = r.state.excerpts
+            defer { r.state.pins = pins; r.state.excerpts = excerpts; r.panel = panel; r.composerOpen = open; layout() }
+            let anchor = Anchor(page: 0, rect: CGRect(x: 60, y: 200, width: 220, height: 100))
+            r.state.pins = [Pin(source: anchor)]
+            r.state.excerpts = [Excerpt(text: "Sidebar resize", lines: [anchor])]
+            let right = root.convert(root.bounds, to: nil).maxX
+            for tab in [Panel.notes, .chat, .pins] {
+                let grip = try inspectorGrip(), bar = grip.convert(grip.bounds, to: nil)
+                let width = rightWidth(), seam = right - width
+                let pdfEdge = CGPoint(x: paper.convert(paper.bounds, to: nil).maxX - 1, y: bar.midY)
+                try check(abs(bar.midX - seam) <= 1 && root.hitTest(root.superview!.convert(pdfEdge, from: nil)) !== grip,
+                          "分隔线对准侧栏边界，并避开 PDF 滚动条")
+                let tabIndex = Panel.allCases.firstIndex(of: tab)!
+                click(window, at: CGPoint(x: seam + width * (CGFloat(tabIndex) + 0.5) / 3, y: bar.maxY - 24))
+                try check(r.panel == tab, "鼠标切换右栏至" + tab.rawValue)
+                for offset: CGFloat in [-5, 5] {
+                    let p = CGPoint(x: seam + offset, y: offset < 0 ? bar.midY : bar.maxY - 25)
+                    let hit = root.hitTest(root.superview!.convert(p, from: nil))
+                    try check(hit === grip, tab.rawValue + "可从边界两侧抓住分隔线")
+                    let hover = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+                    NSCursor.arrow.set()
+                    window.sendEvent(hover)
+                    let resizeOnMove = NSCursor.current == .resizeLeftRight
+                    let update = NSEvent.enterExitEvent(with: .cursorUpdate, location: p, modifierFlags: [], timestamp: hover.timestamp,
+                                                        windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+                    NSCursor.arrow.set()
+                    window.sendEvent(update)
+                    try check(resizeOnMove && NSCursor.current == .resizeLeftRight, tab.rawValue + "分隔线在移动和光标更新时均保持横向光标")
+                    let original = window.frame
+                    drag(grip, by: -18, from: p)
+                    let moved = rightWidth()
+                    try check(abs(moved - width - 18) <= 1 && window.frame == original && r.panel == tab, tab.rawValue + "分隔线取得整次拖动")
+                    drag(grip, by: 18)
+                }
+            }
+        }
+        try testInspectorTabs()
+        let threePaneWidth = rightWidth()
         r.showLeft = false; layout()
-        var inspector = try rightWidth()
+        var inspector = rightWidth()
         try check(abs(inspector - threePaneWidth) <= 1, "首次收起导航时沿用已保存的右栏宽度")
+        try testInspectorTabs()
         try drag(inspectorGrip(), by: -420)
         for windowWidth in [1140, 870, 1370] {
             window.setContentSize(CGSize(width: windowWidth, height: 740)); layout()
-            inspector = try rightWidth()
+            inspector = rightWidth()
             try check(abs(paper.bounds.width - inspector) <= 1 && abs(paper.bounds.width * 2 + 8 - root.bounds.width) <= 1,
                       "窗口宽 \(windowWidth) 时，正文与右栏实际可用宽度相等")
         }
         r.showLeft = true; layout()
-        inspector = try rightWidth()
+        inspector = rightWidth()
         try check(abs(inspector - threePaneWidth) <= 1, "展开导航后恢复三栏布局的独立宽度")
         try drag(inspectorGrip(), by: -480)
-        inspector = try rightWidth()
+        inspector = rightWidth()
         try check(inspector > 490 && paper.bounds.width >= 410, "宽窗口中三栏布局也可扩大右栏，同时保留正文空间")
         r.showLeft = false; layout()
-        inspector = try rightWidth()
+        inspector = rightWidth()
         try check(abs(inspector - paper.bounds.width) <= 1, "再次收起导航恢复二栏等分")
         try drag(inspectorGrip(), by: 95)
-        inspector = try rightWidth()
+        inspector = rightWidth()
         let fraction = inspector / (inspector + paper.bounds.width)
         r.showRight = false; layout()
         window.setFrame(originalFrame, display: true); layout()
         r.showRight = true; layout()
-        inspector = try rightWidth()
+        inspector = rightWidth()
         try check(fraction < 0.49 && abs(inspector - fraction * (inspector + paper.bounds.width)) <= 1,
                   "拖回非等分比例后，改变窗口和开合右栏仍保留选择")
         try testMemoLayout(r, window) { width in
             try drag(inspectorGrip(), by: rightWidth() - width)
             layout()
         }
+        defaults.set(244.0, forKey: "navigationWidth")
+        r.showLeft = true
+        window.setContentSize(CGSize(width: 890, height: 680)); layout()
+        let narrowWidth = rightWidth(), narrowFrame = window.frame
+        try drag(inspectorGrip(), by: -22)
+        try check(abs(rightWidth() - narrowWidth - 22) <= 1 && paper.bounds.width >= 410 && window.frame == narrowFrame,
+                  "窄窗口切为三栏后仍可拖宽右栏，正文保持可读")
     }
     static func testTextCursor(_ r: Reader, _ window: NSWindow) throws {
         guard let paper = r.pdf, let page = r.document?.page(at: 0) else { throw ReaderError("缺少光标测试页") }
@@ -1341,12 +1405,13 @@ enum Verify {
         while !done && Date() < deadline { pause(0.01) }
         return image
     }
-    static func chooseMarkupTool(_ tool: PinDrawingTool, in window: NSWindow) {
+    static func chooseMarkupTool(_ tool: PinDrawingTool, in window: NSWindow) throws {
         func control(in view: NSView) -> NSSegmentedControl? {
             if let picker = view as? NSSegmentedControl, picker.identifier?.rawValue == "pin.markup.tools" { return picker }
             return view.subviews.lazy.compactMap(control(in:)).first
         }
-        guard let picker = control(in: window.contentView!) else { return }
+        try focusForInput(window)
+        guard let picker = control(in: window.contentView!) else { throw ReaderError("便签标注工具栏未出现") }
         picker.selectedSegment = PinDrawingTool.allCases.firstIndex(of: tool)!
         picker.sendAction(picker.action, to: picker.target)
         pause(0.1)
@@ -1365,8 +1430,9 @@ enum Verify {
     }
 
     static func testMoveAndText(_ canvas: PinDrawingSurface, sheet: NSWindow, r: Reader, id: UUID, clipboard: NSPasteboard, work: URL) throws {
-        func choose(_ tool: PinDrawingTool) { chooseMarkupTool(tool, in: sheet) }
-        func mouse(_ start: CGPoint, _ end: CGPoint, clicks: Int = 1, cancel: Bool = false) {
+        func choose(_ tool: PinDrawingTool) throws { try chooseMarkupTool(tool, in: sheet) }
+        func mouse(_ start: CGPoint, _ end: CGPoint, clicks: Int = 1, cancel: Bool = false) throws {
+            try focusForInput(sheet)
             paint(sheet)
             let rect = canvas.imageRect
             let steps: [(NSEvent.EventType, CGPoint)] = start == end ? [(.leftMouseDown, start), (.leftMouseUp, end)] :
@@ -1375,13 +1441,14 @@ enum Verify {
                 let point = canvas.convert(CGPoint(x: rect.minX + p.x * rect.width, y: rect.minY + p.y * rect.height), to: nil)
                 let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                windowNumber: sheet.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: 1)!
-                // Finish dispatching this canvas gesture before inspecting selection or sending a shortcut.
+                // Keep one drag together. An activation event between down and up can interrupt capture.
                 NSApp.sendEvent(event)
-                pause(0.08)
-                if cancel && type == .leftMouseDragged { key(sheet, code: 53, chars: "\u{1b}", flags: []) }
+                if cancel && type == .leftMouseDragged { try key(sheet, code: 53, chars: "\u{1b}", flags: []) }
             }
+            pause(0.08)
         }
-        func key(_ window: NSWindow, code: UInt16, chars: String, flags: NSEvent.ModifierFlags) {
+        func key(_ window: NSWindow, code: UInt16, chars: String, flags: NSEvent.ModifierFlags) throws {
+            try focusForInput(window)
             let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                                          windowNumber: window.windowNumber, context: nil, characters: chars,
                                          charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!
@@ -1403,45 +1470,54 @@ enum Verify {
             editor.selectAll(nil)
             editor.insertText(string, replacementRange: editor.selectedRange())
             pause(0.07)
-            key(window, code: save ? 36 : 53, chars: save ? "\r" : "\u{1b}", flags: save ? .command : [])
+            try key(window, code: save ? 36 : 53, chars: save ? "\r" : "\u{1b}", flags: save ? .command : [])
         }
-        choose(.rectangle)
-        mouse(CGPoint(x: 0.08, y: 0.10), CGPoint(x: 0.32, y: 0.32))
+        try choose(.rectangle)
+        let countBefore = pin().drawing?.count ?? 0
+        do {
+            let other = NSPanel(contentRect: NSRect(x: 50, y: 50, width: 100, height: 50), styleMask: .titled, backing: .buffered, defer: false)
+            defer { other.orderOut(nil) }
+            other.makeKeyAndOrderFront(nil)
+            try check(NSApp.keyWindow === other && !sheet.isKeyWindow, "另一窗口获得焦点后再开始便签拖动")
+            try mouse(CGPoint(x: 0.08, y: 0.10), CGPoint(x: 0.32, y: 0.32))
+            try check(sheet.isKeyWindow && pin().drawing?.count == countBefore + 1 && pin().drawing?.last?.tool == .rectangle,
+                      "回到便签后的第一次拖动完整绘制一个矩形")
+        }
         let box = pin().drawing!.last!
-        choose(.arrow)
-        mouse(CGPoint(x: 0.55, y: 0.72), CGPoint(x: 0.86, y: 0.72))
+        try choose(.arrow)
+        try mouse(CGPoint(x: 0.55, y: 0.72), CGPoint(x: 0.86, y: 0.72))
         let arrow = pin().drawing!.last!
-        try check(canvas.tool == .hand && canvas.zoomControls?.selection?.id == arrow.id, "画完箭头立即回到手型并选中两个端点")
+        try check(arrow.tool == .arrow && canvas.tool == .hand && canvas.zoomControls?.selection?.id == arrow.id, "画完箭头立即回到手型并选中两个端点")
         let oldKey = pin().artworkID
-        mouse(CGPoint(x: 0.16, y: 0.19), CGPoint(x: 0.32, y: 0.28))
+        try mouse(CGPoint(x: 0.16, y: 0.19), CGPoint(x: 0.32, y: 0.28))
         let moved = pin().drawing!.first { $0.id == box.id }!
         try check(moved.points != box.points && pin().drawing!.last == arrow && oldKey != pin().artworkID, "手型移动较低图层的线框，同时刷新便签缩略图")
-        key(sheet, code: 6, chars: "z", flags: .command)
+        try key(sheet, code: 6, chars: "z", flags: .command)
         try check(pin().drawing!.contains(box) && pin().drawing!.last == arrow, "撤销移动只恢复位置和原图层顺序")
-        key(sheet, code: 6, chars: "Z", flags: [.command, .shift])
+        try key(sheet, code: 6, chars: "Z", flags: [.command, .shift])
         try check(pin().drawing!.contains(moved), "重做移动恢复新位置")
-        mouse(CGPoint(x: 0.70, y: 0.72), CGPoint(x: 0.76, y: 0.63))
+        try mouse(CGPoint(x: 0.70, y: 0.72), CGPoint(x: 0.76, y: 0.63))
         try check(pin().drawing!.last?.id == arrow.id && pin().drawing!.last?.points != arrow.points, "手型拖动箭头时两端一起移动")
         let blank = CGPoint(x: 0.48, y: 0.04)
         let beforeText = pin()
-        choose(.text)
-        mouse(blank, CGPoint(x: 0.88, y: blank.y))
+        try choose(.text)
+        try mouse(blank, CGPoint(x: 0.88, y: blank.y))
         let original = "编码器 Encoder\n特征投影"
         try enterText(original)
         guard let label = pin().drawing?.last, label.tool == .text else { throw ReaderError("未保存文本框") }
         try check(label.label?.string == original && abs((label.label?.boxWidth ?? 0) - 0.4) < 0.02, "拖出文本框宽度并保存中英多行文字")
         try check(canvas.tool == .hand && canvas.zoomControls?.selection?.id == label.id, "文本输入完成后保留选中状态，可直接调整")
         let from = CGPoint(x: 0.46, y: 0.43), to = CGPoint(x: 0.78, y: 0.61)
-        choose(.text)
-        mouse(from, to)
+        try choose(.text)
+        try mouse(from, to)
         guard let inline = sheet.firstResponder as? NSTextView, inline.isDescendant(of: canvas) else { throw ReaderError("框选区域没有激活原位输入") }
         try check(canvas.tool == .hand && canvas.zoomControls?.editingText == true, "拖出文本框即回到手型，插入光标仍在框内")
         let lower = CGPoint(x: (from.x + to.x) / 2, y: to.y)
-        mouse(lower, CGPoint(x: lower.x, y: lower.y + 0.08))
+        try mouse(lower, CGPoint(x: lower.x, y: lower.y + 0.08))
         try check(sheet.firstResponder === inline, "新建空白文本框时可直接拖底边，松手后继续输入")
         let border = CGPoint(x: from.x * 0.75 + to.x * 0.25, y: from.y)
         let oldOrigin = inline.convert(.zero as CGPoint, to: canvas)
-        mouse(border, CGPoint(x: border.x + 0.04, y: border.y - 0.03))
+        try mouse(border, CGPoint(x: border.x + 0.04, y: border.y - 0.03))
         let newOrigin = inline.convert(.zero as CGPoint, to: canvas)
         try check(abs(newOrigin.x - oldOrigin.x - 0.04 * canvas.imageRect.width) < 1 &&
                   abs(newOrigin.y - oldOrigin.y + 0.03 * canvas.imageRect.height) < 1 && sheet.firstResponder === inline,
@@ -1463,22 +1539,23 @@ enum Verify {
             return view.subviews.lazy.compactMap { fontField(in: $0) }.first
         }
         guard let font = fontField(in: sheet.contentView!) else { throw ReaderError("字号输入框未显示") }
+        try focusForInput(sheet)
         click(sheet, at: font.convert(CGPoint(x: 10, y: font.bounds.midY), to: nil))
         guard let fieldEditor = font.currentEditor() as? NSTextView else { throw ReaderError("字号栏无法键入自定义字号") }
         fieldEditor.selectAll(nil)
         fieldEditor.insertText("18.5", replacementRange: fieldEditor.selectedRange())
-        key(sheet, code: 36, chars: "\r", flags: [])
+        try key(sheet, code: 36, chars: "\r", flags: [])
         try check(sheet.firstResponder === inline && abs((inline.font?.pointSize ?? 0) - 18.5) < 0.01,
                   "输入自定义小数字号后可回到同一空白文本框继续打字",
                   details: "zoom=\(canvas.zoom), font=\(inline.font?.pointSize ?? 0), field=\(font.stringValue), inlineFocus=\(sheet.firstResponder === inline), keyWindow=\(sheet.isKeyWindow)")
         inline.insertText("实验说明", replacementRange: inline.selectedRange())
-        mouse(CGPoint(x: 0.94, y: 0.9), CGPoint(x: 0.94, y: 0.9))
+        try mouse(CGPoint(x: 0.94, y: 0.9), CGPoint(x: 0.94, y: 0.9))
         if pin().drawing?.last?.label?.string != "实验说明" || !canvas.subviews.allSatisfy({ !($0 is PinInlineTextBox) }) {
             print("框外保存", pin().drawing?.last?.label as Any, canvas.subviews, sheet.firstResponder as Any)
         }
         try check(pin().drawing?.last?.label?.string == "实验说明" && abs((pin().drawing?.last?.label?.boxHeight ?? 0) - 0.26) < 0.015 &&
                   canvas.subviews.allSatisfy { !($0 is PinInlineTextBox) }, "二维拖框后在画布直接输入，点击框外保存所画高度与文字")
-        key(sheet, code: 6, chars: "z", flags: .command)
+        try key(sheet, code: 6, chars: "z", flags: .command)
         r.copyPin(id)
         let afterPNG = clipboard.data(forType: .png)
         guard let store = r.pinPreviews, let clean = preview(store, beforeText), let updated = preview(store, pin()) else { throw ReaderError("文本预览失败") }
@@ -1486,24 +1563,24 @@ enum Verify {
         let frame = label.bounds(size: canvas.imageRect.size, rotation: canvas.rotation)
         let p = CGPoint(x: frame.midX / canvas.imageRect.width, y: frame.midY / canvas.imageRect.height)
         let delta = CGPoint(x: -0.09, y: 0.07)
-        mouse(p, CGPoint(x: p.x + delta.x, y: p.y + delta.y))
+        try mouse(p, CGPoint(x: p.x + delta.x, y: p.y + delta.y))
         let shifted = pin().drawing!.last!.bounds(size: canvas.imageRect.size, rotation: canvas.rotation)
         try check(abs(shifted.midX - frame.midX - delta.x * canvas.imageRect.width) < 1.5 &&
                   abs(shifted.midY - frame.midY - delta.y * canvas.imageRect.height) < 1.5, "文字工具中直接拖动文本框，位移与指针一一对应")
-        key(sheet, code: 6, chars: "z", flags: .command)
-        choose(.hand)
-        mouse(p, p, clicks: 2)
+        try key(sheet, code: 6, chars: "z", flags: .command)
+        try choose(.hand)
+        try mouse(p, p, clicks: 2)
         try enterText("已修改 Edited")
         try check(pin().drawing?.last?.id == label.id && pin().drawing?.last?.label?.string == "已修改 Edited", "双击文本框修改内容，保持标注身份")
         r.copyPin(id)
         try check(clipboard.data(forType: .png) != afterPNG, "复制图片反映文本修改")
-        key(sheet, code: 6, chars: "z", flags: .command)
+        try key(sheet, code: 6, chars: "z", flags: .command)
         try check(pin().drawing?.last?.label?.string == original, "撤销文字编辑恢复多行内容")
-        mouse(p, p, clicks: 2)
+        try mouse(p, p, clicks: 2)
         try enterText("取消输入", save: false)
         try check(pin().drawing?.last?.label?.string == original && canvas.zoomControls?.editingText == false &&
                   sheet.firstResponder === canvas, "取消文字编辑保留原文并将焦点还给画布")
-        mouse(p, CGPoint(x: p.x - 0.15, y: p.y + 0.15))
+        try mouse(p, CGPoint(x: p.x - 0.15, y: p.y + 0.15))
         try check(pin().drawing?.last?.points != label.points && pin().drawing?.last?.label?.string == original, "手型移动文本框保留文字")
         var textSize: CGSize { canvas.imageRect.size }
         let textAngle = canvas.rotation
@@ -1514,7 +1591,7 @@ enum Verify {
                 throw ReaderError("文本框缺少调整手柄")
             }
             let a = layout.corners[0], b = kind == .corner(2) ? layout.corners[2] : layout.corners[1]
-            mouse(textUnit(grip.position), textUnit(CGPoint(x: grip.position.x + (b.x-a.x)*fraction, y: grip.position.y + (b.y-a.y)*fraction)))
+            try mouse(textUnit(grip.position), textUnit(CGPoint(x: grip.position.x + (b.x-a.x)*fraction, y: grip.position.y + (b.y-a.y)*fraction)))
         }
         let beforeResize = pin().drawing!.last!
         try dragTextHandle(beforeResize, .edge(1), fraction: -0.54)
@@ -1525,9 +1602,9 @@ enum Verify {
         let scaled = pin().drawing!.last!
         try check(scaled.id == narrowed.id && scaled.label!.fontSize == narrowed.label!.fontSize &&
                   abs(scaled.label!.boxWidth / narrowed.label!.boxWidth - 1.35) < 0.03, "拖右下角扩大文本框，独立调整宽高并保留字号")
-        key(sheet, code: 6, chars: "z", flags: .command)
+        try key(sheet, code: 6, chars: "z", flags: .command)
         try check(pin().drawing?.last == narrowed, "一次撤销恢复整次文本框缩放")
-        key(sheet, code: 6, chars: "Z", flags: [.command, .shift])
+        try key(sheet, code: 6, chars: "Z", flags: [.command, .shift])
         try check(pin().drawing?.last == scaled, "重做文本框缩放保留图层与内容")
         let bottomRight = scaled.textLayout(size: textSize, rotation: textAngle)!.corners[2]
         let pointer = CGPoint(x: canvas.imageRect.minX + bottomRight.x, y: canvas.imageRect.minY + bottomRight.y)
@@ -1535,20 +1612,21 @@ enum Verify {
         try dragTextHandle(scaled, .corner(2), fraction: -0.2)
         try check(pin().drawing!.last!.label!.fontSize == scaled.label!.fontSize && abs(pin().drawing!.last!.label!.boxWidth / scaled.label!.boxWidth - 0.8) < 0.03 && canvas.zoom == 1.6,
                   "图片放大后缩小文本框时字号仍固定")
-        key(sheet, code: 6, chars: "z", flags: .command)
+        try key(sheet, code: 6, chars: "z", flags: .command)
         try check(pin().drawing?.last == scaled && canvas.zoom == 1.6, "撤销只还原文本编辑，保留查看比例")
         canvas.fitImage()
-        choose(.rectangle)
-        mouse(CGPoint(x: 0.36, y: 0.30), CGPoint(x: 0.64, y: 0.60))
+        try choose(.rectangle)
+        try mouse(CGPoint(x: 0.36, y: 0.30), CGPoint(x: 0.64, y: 0.60))
         let rectangle = pin().drawing!.last!
-        try check(canvas.tool == .hand && canvas.zoomControls?.selection?.id == rectangle.id, "新矩形的控制点可立即拖动")
-        key(sheet, code: 0, chars: "a", flags: [])
+        try check(rectangle.tool == .rectangle && canvas.tool == .hand && canvas.zoomControls?.selection?.id == rectangle.id, "新矩形的控制点可立即拖动",
+                  details: "last=\(rectangle.tool), tool=\(canvas.tool), selected=\(canvas.zoomControls?.selection?.id == rectangle.id), keyWindow=\(sheet.isKeyWindow)")
+        try key(sheet, code: 0, chars: "a", flags: [])
         guard let captionEditor = sheet.firstResponder as? NSTextView, captionEditor.isDescendant(of: canvas) else { throw ReaderError("选中矩形后键入文字未进入编辑") }
         try check(captionEditor.string == "a", "选中矩形直接打字保留首个字符")
         try enterText("系统框图")
         try check(pin().drawing!.last!.points == rectangle.points && pin().drawing!.last!.label?.string == "系统框图", "图形文字作为矩形的一部分保存")
 
-        mouse(CGPoint(x: 0.64, y: 0.60), CGPoint(x: 0.69, y: 0.67))
+        try mouse(CGPoint(x: 0.64, y: 0.60), CGPoint(x: 0.69, y: 0.67))
         func currentBox() -> PinStroke { pin().drawing!.first { $0.id == rectangle.id }! }
         let size = canvas.imageRect.size, angle = canvas.rotation
         func unit(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x / size.width, y: p.y / size.height) }
@@ -1564,7 +1642,7 @@ enum Verify {
         let grips = PinShapeHandles(grown, size: size, rotation: angle)!
         let knob = grips.handles.first { $0.kind == .rotation }!.position
         let turn = CGAffineTransform(translationX: center.x, y: center.y).rotated(by: .pi / 6).translatedBy(x: -center.x, y: -center.y)
-        mouse(unit(knob), unit(knob.applying(turn)))
+        try mouse(unit(knob), unit(knob.applying(turn)))
         let rotated = currentBox(), tilted = rotated.rectangleVertices(size: size, rotation: angle)
         let axis = CGPoint(x: tilted[1].x - tilted[0].x, y: tilted[1].y - tilted[0].y)
         let preAxis = CGPoint(x: corners[1].x - corners[0].x, y: corners[1].y - corners[0].y)
@@ -1573,32 +1651,32 @@ enum Verify {
                   abs(dist(tilted[3], tilted[0]) - dist(corners[3], corners[0])) < 0.01, "拖圆柄旋转矩形 30° 保留两条边长")
         r.copyPin(id)
         try check(clipboard.data(forType: .png) != beforeRotation, "复制的 PNG 反映矩形的新朝向")
-        key(sheet, code: 6, chars: "z", flags: .command)
+        try key(sheet, code: 6, chars: "z", flags: .command)
         try check(currentBox() == grown, "一次撤销还原整次旋转")
-        key(sheet, code: 6, chars: "Z", flags: [.command, .shift])
+        try key(sheet, code: 6, chars: "Z", flags: [.command, .shift])
         try check(currentBox() == rotated, "重做恢复矩形角度")
         let shrink = CGPoint(x: tilted[2].x * 0.75 + tilted[0].x * 0.25, y: tilted[2].y * 0.75 + tilted[0].y * 0.25)
         let resize = PinShapeHandles(rotated, size: size, rotation: angle)!.handles.first { $0.kind == .corner(2) }!.position
-        mouse(unit(resize), unit(CGPoint(x: resize.x + shrink.x - tilted[2].x, y: resize.y + shrink.y - tilted[2].y)))
+        try mouse(unit(resize), unit(CGPoint(x: resize.x + shrink.x - tilted[2].x, y: resize.y + shrink.y - tilted[2].y)))
         let smaller = currentBox().rectangleVertices(size: size, rotation: angle)
         try check(dist(smaller[0], tilted[0]) < 0.01 && dist(smaller[2], shrink) < 1 &&
                   abs(dist(smaller[0], smaller[1]) / dist(tilted[0], tilted[1]) - 0.75) < 0.01, "倾斜矩形沿自身坐标轴缩放")
         let beforeCancel = currentBox()
         let currentGrip = PinShapeHandles(beforeCancel, size: size, rotation: angle)!.handles[0].position
-        mouse(unit(currentGrip), unit(CGPoint(x: currentGrip.x + 14, y: currentGrip.y + 6)), cancel: true)
+        try mouse(unit(currentGrip), unit(CGPoint(x: currentGrip.x + 14, y: currentGrip.y + 6)), cancel: true)
         try check(currentBox() == beforeCancel && sheet.isVisible, "拖动控制点时按 Esc 取消本次调整并保留编辑窗口")
-        choose(.arrow)
+        try choose(.arrow)
         let tail = CGPoint(x: 0.1, y: 0.83), tip = CGPoint(x: 0.63, y: 0.83)
-        mouse(tail, tip)
+        try mouse(tail, tip)
         let originalArrow = pin().drawing!.last!
-        choose(.hand)
+        try choose(.hand)
         let shaft = CGPoint(x: 0.42, y: 0.83)
-        mouse(shaft, shaft)
-        mouse(tip, CGPoint(x: 0.47, y: 0.70))
+        try mouse(shaft, shaft)
+        try mouse(tip, CGPoint(x: 0.47, y: 0.70))
         let turnedArrow = pin().drawing!.last!
         try check(turnedArrow.id == originalArrow.id && turnedArrow.points.first == originalArrow.points.first &&
                   dist(turnedArrow.points.last!, originalArrow.points.last!) > 0.1, "拖箭尖改变箭头长度和方向，起点固定")
-        mouse(tail, CGPoint(x: 0.18, y: 0.57))
+        try mouse(tail, CGPoint(x: 0.18, y: 0.57))
         let finalArrow = pin().drawing!.last!
         try check(finalArrow.points.last == turnedArrow.points.last && finalArrow.points.first != turnedArrow.points.first,
                   "拖箭尾保留箭尖的位置")
@@ -1627,18 +1705,18 @@ enum Verify {
         pinch.amount = 0.3
         NSApp.sendEvent(pinch)
         try check(abs(canvas.zoom - 1.3) < 0.001 && dist(beforeZoom, unitAnchor()) < 0.005, "触控板捏合在指针位置缩放")
-        key(sheet, code: 29, chars: "0", flags: .command)
-        key(sheet, code: 24, chars: "+", flags: [.command, .shift])
+        try key(sheet, code: 29, chars: "0", flags: .command)
+        try key(sheet, code: 24, chars: "+", flags: [.command, .shift])
         try check(abs(canvas.zoom - 1.25) < 0.001, "⌘+ 放大图片")
         canvas.setZoom(4, at: anchor)
         let beforePan = canvas.imageRect.origin
         let shift: NSEvent.ModifierFlags = canvas.imageRect.height > canvas.bounds.height + 1 ? [] : .shift
         imageWheel(sheet, at: target, delta: 1, flags: shift)
         try check(canvas.zoom == 4 && canvas.imageRect.origin != beforePan, "放大后普通滚轮平移可视范围")
-        choose(.pen)
-        key(sheet, code: 49, chars: " ", flags: [])
+        try choose(.pen)
+        try key(sheet, code: 49, chars: " ", flags: [])
         let panFrom = canvas.imageRect.origin, centerUnit = unitAnchor()
-        mouse(centerUnit, CGPoint(x: centerUnit.x + 0.02, y: centerUnit.y + 0.02))
+        try mouse(centerUnit, CGPoint(x: centerUnit.x + 0.02, y: centerUnit.y + 0.02))
         let keyUp = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                      windowNumber: sheet.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ",
                                      isARepeat: false, keyCode: 49)!
@@ -1650,7 +1728,7 @@ enum Verify {
         try check(canvas.zoom == 8, "图片放大上限为 800%")
         canvas.setZoom(0.01, at: anchor)
         try check(canvas.zoom == 0.25, "图片缩小下限为 25%")
-        key(sheet, code: 29, chars: "0", flags: .command)
+        try key(sheet, code: 29, chars: "0", flags: .command)
         try check(canvas.zoom == 1 && canvas.imageRect == rect && pin().drawing == originalMarks, "⌘0 恢复居中全图且保留全部标注")
         try check(r.saveNow(), "保存调整后的形状")
         let reloaded = try r.store.read(r.key! + ".json", fallback: PaperState())
@@ -1659,22 +1737,22 @@ enum Verify {
         let saved = pin()
         defer { r.state.pins[pinIndex] = saved }
         for tool in [PinDrawingTool.pen, .line, .oval] {
-            choose(tool)
-            mouse(CGPoint(x: 0.12, y: 0.12), CGPoint(x: 0.60, y: 0.52))
+            try choose(tool)
+            try mouse(CGPoint(x: 0.12, y: 0.12), CGPoint(x: 0.60, y: 0.52))
             let created = pin().drawing!.last!
             try check(created.tool == tool && canvas.tool == .hand && canvas.zoomControls?.selection?.id == created.id,
                       "新建" + tool.title + "后切回手型并选中刚画的对象")
             if tool == .oval {
-                key(sheet, code: 36, chars: "\r", flags: [])
+                try key(sheet, code: 36, chars: "\r", flags: [])
                 try enterText("节点")
                 let captioned = pin().drawing!.last!
                 try check(captioned.id == created.id && captioned.label?.string == "节点", "椭圆可直接添加说明")
-                key(sheet, code: 36, chars: "\r", flags: [])
+                try key(sheet, code: 36, chars: "\r", flags: [])
                 try enterText("")
                 try check(pin().drawing?.last == created, "清空椭圆说明保留原图形")
             }
         }
-        choose(.hand)
+        try choose(.hand)
         let green = PinColor(NSColor.systemGreen)!
         for tool in PinDrawingTool.allCases where tool != .hand {
             let color = PinColor(NSColor.systemRed)!
@@ -1690,7 +1768,7 @@ enum Verify {
             let currentSize = canvas.imageRect.size
             let box = mark.bounds(size: currentSize, rotation: canvas.rotation)
             let point = CGPoint(x: box.midX / currentSize.width, y: box.midY / currentSize.height)
-            mouse(point, point)
+            try mouse(point, point)
             canvas.editStyle(.color(green))
             if tool == .text { canvas.editStyle(.font(26)) } else { canvas.editStyle(.width(0.009)) }
             if ![.pen, .text].contains(tool) { canvas.editStyle(.dashed(true)) }
@@ -1699,11 +1777,11 @@ enum Verify {
             try check(edited.color == green && (tool == .text ? edited.label!.fontSize != mark.label!.fontSize : edited.width == 0.009) &&
                       ([.pen, .text].contains(tool) || edited.dashed), tool.title + "支持选中并编辑属性")
             if tool == .text { try capture(sheet, work.appendingPathComponent("markup-editor.png")) }
-            key(sheet, code: 51, chars: "\u{7f}", flags: [])
+            try key(sheet, code: 51, chars: "\u{7f}", flags: [])
             try check(pin().drawing == [under, over], tool.title + "可用 Delete 删除且保留其他图层")
-            key(sheet, code: 6, chars: "z", flags: .command)
+            try key(sheet, code: 6, chars: "z", flags: .command)
             try check(pin().drawing == [under, edited, over], tool.title + "撤销删除恢复原图层顺序和样式")
-            key(sheet, code: 6, chars: "Z", flags: [.command, .shift])
+            try key(sheet, code: 6, chars: "Z", flags: [.command, .shift])
             try check(pin().drawing == [under, over], tool.title + "可重做删除")
         }
     }
@@ -1855,6 +1933,7 @@ enum Verify {
                 let commandC = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: sheet.windowNumber,
                                                 context: nil, characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8)!
+                try focusForInput(sheet)
                 NSApp.sendEvent(commandC); pause(0.08)
                 try check(copiedImageMatches(), "便签大图的 ⌘C 复制当前图片")
                 func surface(_ view: NSView) -> PinDrawingSurface? {
@@ -1863,20 +1942,16 @@ enum Verify {
                 }
                 guard let canvas = surface(sheet.contentView!), !canvas.imageRect.isEmpty else { throw ReaderError("图片画布尚未载入") }
                 try check(canvas.tool == .hand, "打开便签默认使用手型浏览或选择标注")
-                NSApp.activate(ignoringOtherApps: true)
-                sheet.makeKeyAndOrderFront(nil)
-                let focusDeadline = Date().addingTimeInterval(2)
-                while !sheet.isKeyWindow && Date() < focusDeadline { pause(0.02) }
-                chooseMarkupTool(.pen, in: sheet)
+                try chooseMarkupTool(.pen, in: sheet)
                 try check(canvas.tool == .pen && sheet.isKeyWindow, "标注工具栏切换画笔并由当前便签窗口接收输入")
                 let beforeDrawing = clipboard.data(forType: .png)
+                try focusForInput(sheet)
                 for (type, fraction) in [(NSEvent.EventType.leftMouseDown, 0.2), (.leftMouseDragged, 0.5), (.leftMouseUp, 0.8)] {
                     let rect = canvas.imageRect
                     let point = canvas.convert(CGPoint(x: rect.minX + rect.width * fraction, y: rect.midY), to: nil)
                     let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                    windowNumber: sheet.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-                    NSApp.postEvent(event, atStart: false)
-                    pause(0.03)
+                    NSApp.sendEvent(event)
                 }
                 func currentDrawing() -> [PinStroke] { r.state.pins.first { $0.id == picked }?.drawing ?? [] }
                 let inkDeadline = Date().addingTimeInterval(1)
@@ -1885,12 +1960,14 @@ enum Verify {
                     print("画笔事件", sheet.isKeyWindow, sheet.firstResponder as Any, canvas.imageRect, currentDrawing().map { ($0.tool.rawValue, $0.points) })
                 }
                 try check(currentDrawing().first?.points.count == 3, "从放大便签的画布拖动画笔并保存一笔")
+                try focusForInput(sheet)
                 NSApp.sendEvent(commandC); pause(0.08)
                 try check(copiedImageMatches() && clipboard.data(forType: .png) != beforeDrawing, "复制图片包含刚画的笔迹")
                 for redo in [false, true] {
                     let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: redo ? [.shift, .command] : .command,
                                                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: sheet.windowNumber,
                                                context: nil, characters: redo ? "Z" : "z", charactersIgnoringModifiers: redo ? "Z" : "z", isARepeat: false, keyCode: 6)!
+                    try focusForInput(sheet)
                     NSApp.sendEvent(key); pause(0.08)
                     try check(currentDrawing().count == (redo ? 1 : 0), redo ? "重做恢复便签笔迹" : "撤销移除便签笔迹")
                 }

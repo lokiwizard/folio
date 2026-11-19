@@ -320,6 +320,9 @@ final class ReaderWindow: NSWindow {
             }
         }
         switch event.type {
+        case .cursorUpdate where attachedSheet == nil && contentHit(at: event.locationInWindow) is ResizeEdge.Handle:
+            NSCursor.resizeLeftRight.set()
+            return
         case .scrollWheel where attachedSheet == nil:
             let point = event.window == nil ? convertPoint(fromScreen: event.locationInWindow) : event.locationInWindow
             if event.modifierFlags.intersection([.control, .command, .option]) == .control {
@@ -344,6 +347,7 @@ final class ReaderWindow: NSWindow {
             }
         case .leftMouseDown:
             endTextSelection()
+            if contentHit(at: event.locationInWindow) is ResizeEdge.Handle { break }
             if attachedSheet == nil, let paper = paper(at: event.locationInWindow) {
                 makeFirstResponder(paper)
                 paper.focusHighlight(for: event)
@@ -392,8 +396,7 @@ final class ReaderWindow: NSWindow {
         default: break
         }
         super.sendEvent(event)
-        // SwiftUI and PDFKit both track the canvas. Resolve the cursor for the
-        // frontmost PDF surface after native mouse handling has finished.
+        // Resolve the cursor for the frontmost surface after AppKit and PDFKit handle the move.
         switch event.type {
         case .leftMouseDown where selectingTextIn != nil && NSEvent.pressedMouseButtons & 1 == 0:
             // PDFKit may have consumed the matching release in its nested mouseDown loop.
@@ -405,6 +408,7 @@ final class ReaderWindow: NSWindow {
             if attachedSheet == nil {
                 var hit = contentHit(at: event.locationInWindow)
                 while let view = hit {
+                    if view is ResizeEdge.Handle { NSCursor.resizeLeftRight.set(); break }
                     if let editor = view as? NSTextView, editor.isEditable { NSCursor.iBeam.set(); break }
                     if let paper = view as? PaperView { paper.setCursorFor(paper.areaOfInterest(forMouse: event)); break }
                     hit = view.superview
