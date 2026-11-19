@@ -8,11 +8,11 @@
 
 **Folio** 专为深度科研阅读而生——将关键图表「钉」在手边随文对照，用语义标签沉淀思考，让原文与截图直接拖拽对话 AI；合上 PDF 时，一键带走结构化的 Markdown 笔记。
 
-**v1.0.2** · Apple Silicon 原生构建 · macOS 14 及以上 · 简体中文 / English · 仅 3.28 MiB
+**v1.1.0** · Apple Silicon 原生构建 · macOS 14 及以上 · 简体中文 / English · 仅 3.32 MiB
 
-[下载 Mac 版](https://github.com/lokiwizard/folio/releases/download/v1.0.2/Folio-arm64.zip)　·　[观看 19 秒演示（MP4）](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4)　·　[浏览导出笔记示例](docs/examples/ip-adapter/notes.md)
+[下载 Mac 版](https://github.com/lokiwizard/folio/releases/download/v1.1.0/Folio-arm64.zip)　·　[观看 19 秒演示（MP4）](docs/media/folio-ip-adapter.mp4)　·　[浏览导出笔记示例](docs/examples/ip-adapter/notes.md)
 
-[![播放 Folio 操作演示：框选图表、拖动便签、标注架构图并向 AI 提问](docs/media/folio-film-cover.webp)](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4)
+[![播放 Folio 操作演示：框选图表、拖动便签、标注架构图并向 AI 提问](docs/media/folio-film-cover.webp)](docs/media/folio-ip-adapter.mp4)
 
 ---
 
@@ -72,7 +72,7 @@
 
 ## 安装与首次打开
 
-1. 下载并解压 [Folio-arm64.zip](https://github.com/lokiwizard/folio/releases/download/v1.0.2/Folio-arm64.zip)。源码构建完成后，也可以在 `dist` 中找到 `Folio.app`。
+1. 下载并解压 [Folio-arm64.zip](https://github.com/lokiwizard/folio/releases/download/v1.1.0/Folio-arm64.zip)。源码构建完成后，也可以在 `dist` 中找到 `Folio.app`。
 2. 在访达中将 `Folio.app` 拖入「应用程序」，双击打开。更新前请先退出旧版。如果旧版使用中文文件名，可以把它改名为 `Folio.app`，再用新版替换。原有设置和阅读记录会自动沿用。
 3. 按 **⌘O** 选择论文，或把 PDF 拖进窗口。下次可从「最近打开」继续阅读。加密 PDF 按提示输入文档密码。
 
@@ -113,7 +113,7 @@
 <details>
 <summary>AI 服务配置、提问方式与聊天记录</summary>
 
-**配置模型**　打开「设置 → AI 服务」，选择厂商，填入 API Key，点「获取模型」并从账号返回的列表中选择，再点「保存并使用」。如果厂商不提供模型目录，可填写模型或推理接入点 ID。「测试连接」会发送一条短消息。可保存多组配置，按需切换。
+**配置模型**　打开「设置 → AI 服务」，选择厂商，填入 API Key 后点「保存并使用」。同一服务地址只需配置一次。点问答框下方的模型名称，可以搜索、刷新并切换这个账号的模型。没有模型目录的服务可在设置里手动填写模型 ID。不同地域或自定义接口的密钥分别保存。
 
 支持 OpenAI、Anthropic、Google Gemini、DeepSeek、阿里云百炼、月之暗面、智谱、火山方舟，以及提供 HTTPS Chat Completions 接口的自定义服务。密钥通过这台 Mac 的安全隔区加密保存，重开应用仍可使用。换到另一台 Mac 时需重新配置。用量由所选 API 账户结算。
 
@@ -122,6 +122,7 @@
 | 问全文 | 点页面上的「问 AI」，选择全文范围后输入问题。右栏「对话」里的新对话也提供五个初始问题。点右上方的「提示词」可以添加、改写或删除问题，数量不限，也可删空。保存后所有论文共用这份列表，重新打开应用仍会保留。点选问题会填入提问框，编辑后即可发送。 |
 | 问一段话 | 选中文字后点「问 AI」。浮窗中可查看完整引文，点「解释」「翻译」或「总结」填入问题，也可自己写。新选区会接入当前对话，按需附加当前页。 |
 | 问一张图或多张卡片 | 把右栏卡片拖向问答胶囊或已展开的提问框。卡片会缩成指针旁的小图，看到「松开引用」后松手即可添加。批注引用原文，图片便签引用 PDF 原始裁图，附上相应标题和页码。卡片里的个人备注与手绘标记留在本机。图片问答需要所选模型支持视觉输入。 |
+| 问其他文件 | 点回形针、从 Finder 拖入文件，或在输入框按 ⌘V 粘贴截图与复制的文件。支持图片、PDF、纯文本、Markdown、CSV 和 JSON。PDF 会提取文字，没有文字的页面会作为图片发送。附件可单独移除，点眼睛图标能预览发送内容。 |
 
 浮窗可拖动和收起。发送前可预览目标服务及引用内容，回答会逐步显示在右栏，支持加粗和 LaTeX 公式。生成时可以停止，也可向上滚动回看。点击对话右侧时间线上的圆点可跳到指定轮次。聊天记录按论文保存，用「+」新建，从历史菜单切换，用垃圾桶删除对话，或右键点击问题删除单轮问答。
 

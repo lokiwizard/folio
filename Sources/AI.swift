@@ -37,12 +37,32 @@ struct Profile: Codable, Identifiable, Equatable {
     var provider: Provider
     var base: String
     var model: String
+    var modelCatalog: [String]?
+    var savedModels: [String]?
+    var credentialID: UUID?
+    var keyID: UUID { credentialID ?? id } // Older versions stored the key under the profile ID.
     init(_ provider: Provider) {
         self.provider = provider
         base = provider.endpoints[0].1
         model = provider.models.first ?? ""
     }
-    var title: String { "\(L(provider.rawValue)) · \(model)" }
+    var title: String { model.isEmpty ? L(provider.rawValue) : "\(L(provider.rawValue)) · \(model)" }
+    var modelChoices: [String] {
+        Set((modelCatalog ?? provider.models) + (savedModels ?? []) + [model]).filter { !$0.isEmpty }.sorted()
+    }
+    func sharesService(with other: Profile) -> Bool {
+        guard provider == other.provider, let address = serviceAddress else { return false }
+        return address == other.serviceAddress
+    }
+    private var serviceAddress: String? {
+        guard let url = try? validatedBase(requireModel: false),
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        parts.scheme = "https"
+        parts.host = parts.host?.lowercased()
+        if parts.port == 443 { parts.port = nil }
+        while parts.percentEncodedPath.hasSuffix("/") { parts.percentEncodedPath.removeLast() }
+        return parts.string
+    }
     func validatedBase(requireModel: Bool = true) throws -> URL {
         guard let parts = URLComponents(string: base), parts.scheme?.lowercased() == "https",
               let host = parts.host, !host.isEmpty, parts.user == nil, parts.password == nil,
@@ -53,14 +73,17 @@ struct Profile: Codable, Identifiable, Equatable {
     }
 }
 
-struct CardAttachment: Identifiable {
+struct ChatAttachment: Identifiable {
     enum Content {
         case passage(text: String, pages: [Int], tag: UUID?)
         case clip(Anchor)
+        case loading
+        case file(ChatFile)
     }
     let id: UUID
     let title: String?
     let content: Content
+    init(id: UUID, name: String, content: Content) { self.id = id; title = name; self.content = content }
     init(_ excerpt: Excerpt) {
         id = excerpt.id
         title = excerpt.customTitle
@@ -76,6 +99,7 @@ struct CardAttachment: Identifiable {
         switch content {
         case let .passage(text, pages, _): return text.isEmpty ? pages.map(pageName).joined(separator: ", ") : text
         case let .clip(anchor): return pageName(anchor.page)
+        case .loading, .file: return L("文件")
         }
     }
 }
@@ -85,14 +109,19 @@ struct ChatLine: Codable, Identifiable {
     var role: String
     var text: String
     var displayText: String?
+    var fileNames: [String]?
     var includesSource: Bool?
     var images: [Data]?
     var selection: Citation?
     var sourceFormatVersion: Int?
     var createdAt: Date? = Date()
 
+    var bubbleText: String {
+        guard let files = fileNames, !files.isEmpty else { return text }
+        return (["📎 " + files.joined(separator: " · ")] + (text.isEmpty ? [] : [text])).joined(separator: "\n")
+    }
     var forDisplay: ChatLine {
-        ChatLine(id: id, role: role, text: displayText ?? text, selection: selection, createdAt: createdAt)
+        ChatLine(id: id, role: role, text: displayText ?? text, fileNames: fileNames, selection: selection, createdAt: createdAt)
     }
 
     // Old requests stored card notes and PDF extracts in one string. Only
@@ -112,7 +141,10 @@ struct PaperChat: Codable, Identifiable {
     var messages: [ChatLine] = []
     var wholePaper = true
     var citation: Citation?
-    var title: String { messages.first?.displayText ?? L("新对话") }
+    var title: String {
+        if let title = messages.first?.displayText, !title.isEmpty { return title }
+        return messages.first?.fileNames?.first ?? L("新对话")
+    }
 }
 
 private final class DirectOnly: NSObject, URLSessionTaskDelegate {

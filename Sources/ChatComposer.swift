@@ -121,7 +121,9 @@ struct FloatingChat: View {
     @AppStorage("chatPositionY") private var y = 1.0
     @State private var translation = CGSize.zero
     @State private var panelSize = ChatLauncherLabel.size
-    @FocusState private var editing: Bool
+    @State private var focusRequest = 0
+    @State private var choosingModel = false
+    @State private var fileTarget = false
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var preview = false
@@ -200,7 +202,7 @@ struct FloatingChat: View {
                                 ForEach([("解释", "请解释这段文字。"), ("翻译", "请把这段文字翻译成中文。"), ("总结", "请用中文总结这段文字。")], id: \.0) { title, prompt in
                                     Button {
                                         r.question = L(prompt)
-                                        editing = true
+                                        focusRequest += 1
                                     } label: {
                                         Text(L(title)).lineLimit(1).frame(maxWidth: .infinity)
                                     }
@@ -210,31 +212,54 @@ struct FloatingChat: View {
                             }.buttonStyle(.bordered).controlSize(.regular).disabled(r.sending)
                         }
                         if count > 0 { sources }
-                        TextField(bilingual("输入问题…", "Ask a question…"), text: $r.question, axis: .vertical)
-                            .font(.system(size: 15)).textFieldStyle(.plain).lineLimit(2...4)
-                            .focused($editing).disabled(r.sending).onSubmit { r.send() }
-                            .accessibilityLabel(bilingual("输入问题", "Question"))
+                        ChatQuestionField(text: $r.question, pasteboard: r.imagePasteboard, editable: !r.sending, focusRequest: focusRequest,
+                                          attach: r.attachFiles, submit: r.send)
+                            .overlay(alignment: .topLeading) {
+                                if r.question.isEmpty {
+                                    Text(bilingual("输入问题…", "Ask a question…")).font(.system(size: 15))
+                                        .foregroundStyle(.tertiary).allowsHitTesting(false).accessibilityHidden(true)
+                                }
+                            }
                         if !r.chatError.isEmpty { Text(r.chatError).font(InspectorType.detail).foregroundStyle(.red).lineLimit(3).help(r.chatError) }
                     }.padding(.horizontal, 10).padding(.vertical, 8)
                         .background(PaperStyle.surface.opacity(0.82 - 0.66 * glass), in: RoundedRectangle(cornerRadius: 8))
                         .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.primary.opacity(0.09), lineWidth: 0.6).allowsHitTesting(false) }
                         .padding(.horizontal, 7)
                     HStack(spacing: 8) {
-                        Button { r.settingsTab = .ai; r.settings = true } label: {
+                        Button {
+                            if r.profile != nil { choosingModel = true }
+                            else { r.settingsTab = .ai; r.settings = true }
+                        } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: "cpu")
-                                Text(r.profile?.model ?? L("配置 AI 服务")).lineLimit(1)
+                                Text(r.profile.map { $0.model.isEmpty ? bilingual("选择模型", "Choose model") : $0.model } ?? L("配置 AI 服务")).lineLimit(1)
+                                Image(systemName: "chevron.down").font(.system(size: 8))
                             }.font(.system(size: 12, weight: .medium))
-                        }.buttonStyle(ReaderButtonStyle()).foregroundStyle(.secondary)
+                        }.buttonStyle(ReaderButtonStyle()).foregroundStyle(.secondary).disabled(r.sending)
+                            .popover(isPresented: $choosingModel) {
+                                if let service = r.profile {
+                                    ServiceModelPicker(service: service, fetch: {
+                                        let models = try await AIClient.models(profile: service, key: r.serviceKey(for: service))
+                                        try Task.checkCancellation()
+                                        try r.cacheModels(models, for: service)
+                                    }, select: { id in
+                                        do { try r.selectModel(id, for: service.id); choosingModel = false }
+                                        catch { r.chatError = error.localizedDescription }
+                                    }, manage: { choosingModel = false; r.settingsTab = .ai; r.settings = true })
+                                }
+                            }
                         Spacer(minLength: 8)
+                        GlyphButton(symbol: "paperclip", title: bilingual("添加文件", "Attach files")) { pickFiles() }
+                            .disabled(r.sending)
                         GlyphButton(symbol: "eye", title: L("查看发送内容")) { previewError = ""; previewMessages = []; preview = true }
+                            .disabled(r.importingFiles)
                         Button { if r.sending { r.stopAnswer() } else { r.send() } } label: {
                             Image(systemName: r.sending ? "stop.fill" : "arrow.up")
                                 .font(.system(size: r.sending ? 11 : 14, weight: .bold)).frame(width: 25, height: 25)
                                 .foregroundStyle(.white).background(accent, in: Circle())
                         }.buttonStyle(ReaderButtonStyle(radius: 13))
-                            .disabled(!r.sending && (r.profile == nil || r.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
-                            .opacity(r.sending || (r.profile != nil && !r.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ? 1 : 0.54)
+                            .disabled(!r.sending && !canSend)
+                            .opacity(r.sending || canSend ? 1 : 0.54)
                             .help(r.sending ? bilingual("停止", "Stop") : L("发送"))
                             .accessibilityLabel(r.sending ? bilingual("停止", "Stop") : L("发送"))
                     }.padding(.horizontal, 10).padding(.vertical, 4)
@@ -255,15 +280,21 @@ struct FloatingChat: View {
                     PaperGlass(strength: glass, corner: radius)
                 }
                 .clipShape(shape)
-                .overlay { shape.strokeBorder(drag.overChat ? accent : Color.primary.opacity(0.17), lineWidth: drag.overChat ? 2 : 0.7).allowsHitTesting(false) }
+                .overlay { shape.strokeBorder(drag.overChat || fileTarget ? accent : Color.primary.opacity(0.17), lineWidth: drag.overChat || fileTarget ? 2 : 0.7).allowsHitTesting(false) }
+                .dropDestination(for: URL.self) { urls, _ in
+                    let files = urls.filter(\.isFileURL)
+                    guard !r.sending, !files.isEmpty else { return false }
+                    r.attachFiles(files.map(ChatFile.Input.file))
+                    return true
+                } isTargeted: { fileTarget = $0 && !r.sending }
                 .shadow(color: .black.opacity(scheme == .dark ? 0.26 : 0.12), radius: r.composerOpen ? 8 : 4, y: r.composerOpen ? 3 : 2)
                 .background { if !r.sending { TrashMarker(chat: true, drag: drag, remove: r.attachCard) } }
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { panelSize = $0 }
                 .offset(x: 12 + min(rangeX, max(0, x * rangeX + translation.width)),
                         y: 12 + min(rangeY, max(0, y * rangeY + translation.height)))
         }
-        .onChange(of: r.composerOpen) { editing = r.composerOpen }
-        .onChange(of: count) { if r.composerOpen { editing = true } }
+        .onChange(of: r.composerOpen) { if r.composerOpen { focusRequest += 1 } }
+        .onChange(of: count) { if r.composerOpen { focusRequest += 1 } }
         .sheet(isPresented: $preview, onDismiss: { previewMessages = []; previewError = "" }) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(L("发送内容")).font(.headline)
@@ -291,6 +322,20 @@ struct FloatingChat: View {
         }
     }
 
+    private var canSend: Bool {
+        r.profile?.model.isEmpty == false && !r.importingFiles && r.hasQuestionInput
+    }
+    private func pickFiles() {
+        guard let window = NSApp.keyWindow else { return }
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = ChatFile.contentTypes
+        let session = r.conversationID
+        panel.beginSheetModal(for: window) { result in
+            if result == .OK && r.conversationID == session { r.attachFiles(panel.urls.map(ChatFile.Input.file)) }
+        }
+    }
     private var sourceMenu: some View {
         Menu {
             Toggle(bilingual("引用全文文字", "Include full paper text"), isOn: Binding(get: { r.wholePaper }, set: { full in
@@ -311,8 +356,8 @@ struct FloatingChat: View {
         ScrollView(.horizontal) {
             HStack(spacing: 5) {
                 ForEach(r.attachments) { source in
-                    let symbol = switch source.content { case .passage: "highlighter"; case .clip: "pin" }
-                    chip(symbol, source.label) { r.attachments.removeAll { $0.id == source.id } }
+                    let symbol = switch source.content { case .passage: "highlighter"; case .clip: "pin"; case .loading: "clock"; case .file: "paperclip" }
+                    chip(symbol, source.label) { r.removeAttachment(source.id) }
                 }
             }
         }.scrollIndicators(.hidden)

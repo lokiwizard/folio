@@ -204,58 +204,71 @@ private struct ServiceSettings: View {
     @State private var feedback = ""
     @State private var testing = false
     @State private var confirmingDelete = false
-    @State private var discovered: [String] = []
     @State private var choosingModel = false
-    @State private var modelFilter = ""
     @State private var testTask: Task<Void, Never>?
-    var existing: Profile? { r.prefs.profiles.first { $0.id == draft.id } }
+    private var existing: Profile? { r.savedService(for: draft) }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Menu {
-                        ForEach(r.prefs.profiles) { p in
-                            Button((p.id == r.prefs.active ? "✓ " : "") + p.title) {
-                                r.prefs.active = p.id; r.persistPreferences(); load(p)
+                if !r.prefs.profiles.isEmpty {
+                    HStack {
+                        Menu {
+                            ForEach(r.prefs.profiles) { service in
+                                Button((service.id == r.prefs.active ? "✓ " : "") + service.title + " · " + service.base) {
+                                    do { load(try r.saveService(service, key: "")) }
+                                    catch { feedback = error.localizedDescription }
+                                }
                             }
+                        } label: { Text(bilingual("已保存的服务", "Saved services")) }
+                        Spacer()
+                        if existing != nil {
+                            Button { confirmingDelete = true } label: { Image(systemName: "trash") }
+                                .help(bilingual("删除服务和密钥", "Delete service and key")).hoverHighlight()
                         }
-                        Divider()
-                        Button(L("新增配置")) { load(Profile(.openAI)) }
-                    } label: { Text(existing?.title ?? L("新增配置")).lineLimit(1) }
-                    Button { load(Profile(.openAI)) } label: { Image(systemName: "plus") }.help(L("新增配置")).hoverHighlight()
-                    if existing != nil {
-                        Button { confirmingDelete = true } label: { Image(systemName: "trash") }.help(L("删除配置和密钥")).hoverHighlight()
                     }
                 }
                 Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 11) {
                     GridRow {
                         Text(L("厂商"))
-                        Picker(L("厂商"), selection: Binding(get: { draft.provider }, set: { p in
-                            let id = draft.id; draft = Profile(p); draft.id = id; secret = ""; feedback = ""
+                        Picker(L("厂商"), selection: Binding(get: { draft.provider }, set: { provider in
+                            let saved = r.profile.flatMap { $0.provider == provider ? $0 : nil }
+                                ?? r.prefs.profiles.first { $0.provider == provider }
+                            load(saved ?? Profile(provider))
                         })) { ForEach(Provider.allCases) { Text(L($0.rawValue)).tag($0) } }.labelsHidden()
                     }
                     if draft.provider.endpoints.count > 1 {
                         GridRow {
                             Text(L("地域"))
                             Menu(draft.provider.endpoints.first(where: { $0.1 == draft.base })?.0 ?? L("自定义地域")) {
-                                ForEach(draft.provider.endpoints, id: \.1) { item in Button(item.0) { draft.base = item.1; secret = "" } }
+                                ForEach(draft.provider.endpoints, id: \.1) { item in Button(item.0) { changeAddress(item.1) } }
                             }
                         }
                     }
-                    GridRow { Text(L("服务地址")); TextField("https://…", text: $draft.base).textFieldStyle(.roundedBorder) }
+                    GridRow {
+                        Text(L("服务地址"))
+                        TextField("https://…", text: Binding(get: { draft.base }, set: changeAddress)).textFieldStyle(.roundedBorder)
+                    }
+                    GridRow {
+                        Text("API Key")
+                        SecureField(existing == nil ? L("输入密钥") : L("留空沿用原密钥，输入可替换"), text: $secret)
+                            .textFieldStyle(.roundedBorder)
+                            .onChange(of: secret) { _, value in
+                                draft.modelCatalog = value.isEmpty ? existing?.modelCatalog : nil
+                            }
+                    }
                     GridRow {
                         Text(L("模型 ID"))
                         HStack {
                             TextField(L("输入模型或推理接入点 ID"), text: $draft.model).textFieldStyle(.roundedBorder)
-                            Button(bilingual("获取模型", "Fetch models")) { fetchModels() }.hoverHighlight()
-                            if !draft.provider.models.isEmpty {
-                                Menu(bilingual("预设", "Presets")) { ForEach(draft.provider.models, id: \.self) { m in Button(m) { draft.model = m } } }.fixedSize()
-                            }
+                            Button(bilingual("选择模型", "Choose model")) { choosingModel = true }.hoverHighlight()
+                                .popover(isPresented: $choosingModel) {
+                                    ServiceModelPicker(service: draft, fetch: {
+                                        let models = try await AIClient.models(profile: draft, key: r.serviceKey(for: draft, input: secret))
+                                        try Task.checkCancellation()
+                                        draft.modelCatalog = models
+                                    }, select: { model in draft.model = model; choosingModel = false })
+                                }
                         }
-                    }
-                    GridRow {
-                        Text("API Key")
-                        SecureField(existing == nil ? L("输入密钥") : L("留空沿用原密钥，输入可替换"), text: $secret).textFieldStyle(.roundedBorder)
                     }
                 }
                 HStack {
@@ -266,73 +279,39 @@ private struct ServiceSettings: View {
                 }
                 if !feedback.isEmpty { Text(feedback).font(.callout).textSelection(.enabled) }
                 Divider()
-                Text(L("密钥在这台 Mac 上加密保存，重开 Folio 后可继续使用。测试连接会向所选服务发送一条简短消息。"))
+                Text(bilingual("每个服务地址只需保存一次密钥。点「选择模型」获取账号可用的模型，也可以直接填写模型 ID。",
+                               "Save one key per service endpoint. Choose a model from your account or enter a model ID."))
                     .font(.system(size: 13)).foregroundStyle(PaperStyle.muted).lineSpacing(3)
             }.padding(15).sidebarCardSurface().padding(1).disabled(testing)
         }.onDisappear { testTask?.cancel() }
-            .sheet(isPresented: $choosingModel) {
-                VStack(alignment: .leading) {
-                    Text(bilingual("选择模型", "Choose a model")).font(.headline)
-                    TextField(bilingual("搜索模型 ID", "Search model IDs"), text: $modelFilter)
-                    List(discovered.filter { modelFilter.isEmpty || $0.localizedCaseInsensitiveContains(modelFilter) }, id: \.self) { id in
-                        Button(id) { draft.model = id; choosingModel = false }.buttonStyle(.plain)
-                    }
-                    Button(L("取消")) { choosingModel = false }.keyboardShortcut(.cancelAction)
-                }.padding().frame(width: 370, height: 400)
-            }
-            .alert(L("删除这组配置和已保存的密钥？"), isPresented: $confirmingDelete) {
+            .alert(bilingual("删除这项服务及其密钥？", "Delete this service and its key?"), isPresented: $confirmingDelete) {
                 Button(L("取消"), role: .cancel) {}
                 Button(L("删除"), role: .destructive) {
-                    do {
-                        try r.secrets.remove(draft.id)
-                        r.prefs.profiles.removeAll { $0.id == draft.id }
-                        if r.prefs.active == draft.id { r.prefs.active = r.prefs.profiles.first?.id }
-                        r.persistPreferences()
-                        load(r.profile ?? Profile(.openAI))
-                    } catch { feedback = error.localizedDescription }
+                    guard let existing else { return }
+                    do { try r.deleteService(existing.id); load(r.profile ?? Profile(.openAI)) }
+                    catch { feedback = error.localizedDescription }
                 }
             }
     }
-    private func load(_ p: Profile) { draft = p; secret = ""; feedback = "" }
-    private func fetchModels() {
-        testing = true; feedback = ""
-        testTask = Task {
-            defer { testing = false }
-            do {
-                discovered = try await AIClient.models(profile: draft, key: effectiveKey(requireModel: false))
-                try Task.checkCancellation()
-                modelFilter = ""; choosingModel = true
-            } catch { if !Task.isCancelled { feedback = error.localizedDescription } }
-        }
-    }
-    private func effectiveKey(requireModel: Bool = true) throws -> String {
-        _ = try draft.validatedBase(requireModel: requireModel)
-        let input = secret.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !input.isEmpty { return input }
-        if let existing, existing.base == draft.base, existing.provider == draft.provider {
-            let stored = try r.secrets.get(draft.id)
-            if !stored.isEmpty { return stored }
-        }
-        throw ReaderError(L("请输入该服务地址对应的 API Key。"))
+    private func load(_ service: Profile) { secret = ""; draft = service; feedback = ""; choosingModel = false }
+    private func changeAddress(_ address: String) {
+        var service = Profile(draft.provider)
+        service.base = address
+        if draft.sharesService(with: service) { draft.base = address; return }
+        if let saved = r.savedService(for: service) { service = saved; service.base = address }
+        load(service)
     }
     private func save() {
         do {
-            _ = try draft.validatedBase()
-            let input = secret.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !input.isEmpty {
-                try r.secrets.set(input, for: draft.id)
-            } else if existing?.provider != draft.provider || existing?.base != draft.base {
-                throw ReaderError(L("请输入该服务地址对应的 API Key。"))
-            }
-            if let i = r.prefs.profiles.firstIndex(where: { $0.id == draft.id }) { r.prefs.profiles[i] = draft }
-            else { r.prefs.profiles.append(draft) }
-            r.prefs.active = draft.id; r.persistPreferences()
-            secret = ""; feedback = L("已保存，当前使用 ") + draft.title
+            let saved = try r.saveService(draft, key: secret)
+            load(saved)
+            feedback = L("已保存，当前使用 ") + saved.title
         } catch { feedback = error.localizedDescription }
     }
     private func test() {
         do {
-            let key = try effectiveKey()
+            _ = try draft.validatedBase()
+            let key = try r.serviceKey(for: draft, input: secret)
             let p = draft
             testing = true; feedback = ""
             testTask = Task {

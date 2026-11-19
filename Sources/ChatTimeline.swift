@@ -10,7 +10,7 @@ struct ChatTimeline: View {
     private func label(for turn: ChatLine, number: Int) -> String {
         let title = turn.createdAt.map { $0.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(locale)) }
             ?? bilingual("第 \(number) 轮提问", "Question \(number)")
-        return title + " · " + turn.text.prefix(100)
+        return title + " · " + turn.bubbleText.prefix(100)
     }
     var body: some View {
         ScrollView(.vertical) {

@@ -26,7 +26,7 @@ final class Reader: ObservableObject {
     }
     let secrets: CredentialStore
     let store: LocalStore
-    private let imagePasteboard: NSPasteboard
+    let imagePasteboard: NSPasteboard
     @Published var prefs: Preferences
     @Published var state = PaperState() { didSet { scheduleSave() } }
     @Published var pdf: PaperView?
@@ -66,7 +66,7 @@ final class Reader: ObservableObject {
     @Published var conversations: [PaperChat] = []
     @Published var conversationID = UUID()
     @Published var wholePaper = true
-    @Published var attachments: [CardAttachment] = []
+    @Published var attachments: [ChatAttachment] = []
     @Published var composerOpen = false
     @Published var partialAnswer = ""
     @Published private(set) var pendingTurn: ChatLine?
@@ -78,6 +78,7 @@ final class Reader: ObservableObject {
     private var saveTimer: Timer?
     private var searchTask: Task<Void, Never>?
     private var sendTask: Task<Void, Never>?
+    private var fileReads: [UUID: Task<ChatFile, Error>] = [:]
     private var restoring = false
     private var prefsReadable = true
     private(set) var pinPreviews: PinPreviewStore?
@@ -109,6 +110,78 @@ final class Reader: ObservableObject {
         if prefs.migratePresetColors() { persistPreferences() }
     }
     var profile: Profile? { prefs.profiles.first { $0.id == prefs.active } }
+    func savedService(for draft: Profile) -> Profile? {
+        let matches = prefs.profiles.filter { $0.sharesService(with: draft) }
+        return matches.first { $0.id == draft.id } ?? matches.first { $0.id == prefs.active } ?? matches.first
+    }
+    func serviceKey(for draft: Profile, input: String = "") throws -> String {
+        _ = try draft.validatedBase(requireModel: false)
+        let key = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty { return key }
+        guard let saved = savedService(for: draft) else { throw ReaderError(L("请输入该服务地址对应的 API Key。")) }
+        return try secrets.get(saved.keyID)
+    }
+    private func writeServices(_ next: Preferences) throws {
+        guard prefsReadable else { throw ReaderError(bilingual("无法读取本机设置。", "Could not read local settings.")) }
+        try store.write(next, to: "library.json")
+        prefs = next
+    }
+    @discardableResult
+    func saveService(_ draft: Profile, key input: String) throws -> Profile {
+        _ = try draft.validatedBase(requireModel: false)
+        let key = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existing = savedService(for: draft)
+        if key.isEmpty && existing == nil { throw ReaderError(L("请输入该服务地址对应的 API Key。")) }
+        var saved = draft
+        saved.id = existing?.id ?? UUID()
+        saved.model = draft.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        saved.credentialID = existing?.credentialID
+        if key.isEmpty && saved.modelCatalog == nil { saved.modelCatalog = existing?.modelCatalog }
+        saved.savedModels = Array(Set((existing?.savedModels ?? []) + [existing?.model ?? "", saved.model]).filter { !$0.isEmpty }).sorted()
+        // Write a replacement key separately until preferences point to it.
+        if !key.isEmpty {
+            let id = UUID()
+            try secrets.set(key, for: id)
+            saved.credentialID = id
+        }
+        var next = prefs
+        if let index = next.profiles.firstIndex(where: { $0.id == saved.id }) { next.profiles[index] = saved }
+        else { next.profiles.append(saved) }
+        next.active = saved.id
+        do { try writeServices(next) } catch {
+            if !key.isEmpty { try? secrets.remove(saved.keyID) }
+            throw error
+        }
+        if let existing, existing.keyID != saved.keyID { try removeUnusedKey(existing.keyID) }
+        return saved
+    }
+    func selectModel(_ model: String, for id: UUID) throws {
+        guard let index = prefs.profiles.firstIndex(where: { $0.id == id }) else {
+            throw ReaderError(L("尚未选择服务"))
+        }
+        var next = prefs
+        next.profiles[index].model = model
+        _ = try next.profiles[index].validatedBase()
+        next.active = id
+        try writeServices(next)
+    }
+    func cacheModels(_ models: [String], for service: Profile) throws {
+        guard let index = prefs.profiles.firstIndex(where: { $0.id == service.id && $0.keyID == service.keyID && $0.sharesService(with: service) }) else { return }
+        var next = prefs
+        next.profiles[index].modelCatalog = models
+        try writeServices(next)
+    }
+    private func removeUnusedKey(_ id: UUID) throws {
+        if !prefs.profiles.contains(where: { $0.keyID == id }) { try secrets.remove(id) }
+    }
+    func deleteService(_ id: UUID) throws {
+        guard let saved = prefs.profiles.first(where: { $0.id == id }) else { return }
+        var next = prefs
+        next.profiles.removeAll { $0.id == id }
+        if next.active == id { next.active = next.profiles.first?.id }
+        try writeServices(next)
+        try removeUnusedKey(saved.keyID)
+    }
     var paperPrompts: [PaperPrompt] { prefs.paperPrompts ?? PaperPrompt.defaults }
     func savePaperPrompts(_ prompts: [PaperPrompt]) throws {
         guard prefsReadable else { throw ReaderError(bilingual("无法读取本机设置。", "Could not read local settings.")) }
@@ -707,6 +780,8 @@ final class Reader: ObservableObject {
     }
     func resetChat() {
         stopAnswer()
+        for read in fileReads.values { read.cancel() }
+        fileReads.removeAll()
         conversationID = UUID()
         citation = nil; chat = []; transcript = []; question = ""; includePage = false; chatError = ""
         wholePaper = true; attachments = []
@@ -756,13 +831,58 @@ final class Reader: ObservableObject {
         switch ref.list {
         case .notes:
             guard let card = state.excerpts.first(where: { $0.id == ref.id }) else { return }
-            attachments.append(CardAttachment(card))
+            attachments.append(ChatAttachment(card))
         case .pins:
             guard let pin = state.pins.first(where: { $0.id == ref.id }) else { return }
-            attachments.append(CardAttachment(pin))
+            attachments.append(ChatAttachment(pin))
         }
         if transcript.isEmpty && citation == nil { wholePaper = false }
         composerOpen = true
+    }
+    var importingFiles: Bool { attachments.contains { if case .loading = $0.content { return true }; return false } }
+    func removeAttachment(_ id: UUID) {
+        fileReads.removeValue(forKey: id)?.cancel()
+        attachments.removeAll { $0.id == id }
+    }
+    var hasQuestionInput: Bool { !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || fileNames != nil }
+    private var fileNames: [String]? {
+        let names = attachments.compactMap { item -> String? in
+            if case .file = item.content { return item.title }
+            return nil
+        }
+        return names.isEmpty ? nil : names
+    }
+    func attachFiles(_ inputs: [ChatFile.Input]) {
+        guard !sending, !inputs.isEmpty else { return }
+        chatError = ""; composerOpen = true
+        let pending = inputs.map { input in
+            let item = ChatAttachment(id: UUID(), name: input.name, content: .loading)
+            attachments.append(item)
+            return (item.id, input)
+        }
+        Task {
+            for (id, input) in pending {
+                guard attachments.contains(where: { $0.id == id }) else { continue }
+                let read = Task.detached(priority: .userInitiated) { try ChatFile.read(input) }
+                fileReads[id] = read
+                defer { fileReads.removeValue(forKey: id) }
+                do {
+                    let file = try await read.value
+                    guard let index = attachments.firstIndex(where: { $0.id == id }) else { continue }
+                    let total = attachments.reduce(file.byteCount) { size, item in
+                        if case let .file(other) = item.content { return size + other.byteCount }
+                        return size
+                    }
+                    guard total <= ChatFile.messageLimit else { throw ChatFile.tooLarge }
+                    attachments[index] = ChatAttachment(id: id, name: input.name, content: .file(file))
+                    if transcript.isEmpty && citation == nil { wholePaper = false }
+                } catch {
+                    guard attachments.contains(where: { $0.id == id }) else { continue }
+                    attachments.removeAll { $0.id == id }
+                    chatError = [chatError, input.name + " · " + error.localizedDescription].filter { !$0.isEmpty }.joined(separator: "\n")
+                }
+            }
+        }
     }
     var contextPageText: String { document?.safePage(pageIndex)?.string ?? "" }
     func outgoingMessages() async throws -> [ChatLine] {
@@ -771,6 +891,7 @@ final class Reader: ObservableObject {
         let history = transcript.map(\.forFollowUp)
         let needsPaper = !history.contains { $0.includesSource == true && $0.selection == nil }
         let selected = citation
+        let names = fileNames
         if let cite = selected {
             parts.append(cite.pages.map(pageName).joined(separator: ", "))
             parts.append(cite.text)
@@ -792,32 +913,37 @@ final class Reader: ObservableObject {
                 }
                 images.append(image)
                 parts.append([source.title ?? bilingual("便签图片", "Pinned image"), pageName(anchor.page)].joined(separator: " · "))
+            case .loading: throw ReaderError(bilingual("正在读取附件。", "Reading attachments."))
+            case let .file(file):
+                parts.append([source.label, file.text].filter { !$0.isEmpty }.joined(separator: "\n"))
+                images.append(contentsOf: file.images)
             }
         }
         if let pageExtra { parts.append(pageExtra) }
         if includeFull, let source = fullSource { parts.insert(try await source.paperText(), at: 0) }
-        parts.append(bilingual("问题：\n", "Question:\n") + prompt)
-        return history + [ChatLine(role: "user", text: parts.joined(separator: "\n\n"), displayText: prompt, includesSource: includeFull, images: images.isEmpty ? nil : images, selection: selected, sourceFormatVersion: 2)]
+        if !prompt.isEmpty { parts.append(bilingual("问题：\n", "Question:\n") + prompt) }
+        return history + [ChatLine(role: "user", text: parts.joined(separator: "\n\n"), displayText: prompt, fileNames: names, includesSource: includeFull, images: images.isEmpty ? nil : images, selection: selected, sourceFormatVersion: 2)]
     }
     func send() {
         let prompt = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sending, historyReadable, document != nil, !prompt.isEmpty, let profile else { return }
+        guard !sending, !importingFiles, historyReadable, document != nil, hasQuestionInput, let profile, !profile.model.isEmpty else { return }
         guard wholePaper || includePage || citation != nil || !attachments.isEmpty || !transcript.isEmpty else {
             chatError = bilingual("请添加批注或选择全文。", "Add a note or choose the full paper."); return
         }
         panel = .chat; showRight = true
-        let turn = ChatLine(role: "user", text: prompt, selection: citation)
+        let turn = ChatLine(role: "user", text: prompt, fileNames: fileNames, selection: citation)
         pendingTurn = turn
         sending = true; partialAnswer = ""; chatError = ""
         sendTask = Task {
             do {
+                let apiKey = try askModel == nil ? secrets.get(profile.keyID) : ""
                 var payload = try await outgoingMessages()
                 payload[payload.count - 1].id = turn.id
                 payload[payload.count - 1].createdAt = turn.createdAt
                 try Task.checkCancellation()
                 let answer: String
                 if let askModel { answer = try await askModel(profile, payload) }
-                else { answer = try await AIClient.stream(profile, payload, key: secrets.get(profile.id)) { value in
+                else { answer = try await AIClient.stream(profile, payload, key: apiKey) { value in
                     if !Task.isCancelled { self.partialAnswer = value }
                 } }
                 try Task.checkCancellation()

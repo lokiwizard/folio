@@ -8,11 +8,11 @@ Tired of flipping back ten pages to check an architecture diagram while reading 
 
 **Folio** is built from the ground up for deep paper reading—pin figures right beside the text, organize thoughts with semantic tags, drag quotes and diagrams straight into AI, and export structured Markdown notes the moment you close the PDF.
 
-**v1.0.2** · Native Apple Silicon · macOS 14 or later · English & Simplified Chinese · 3.28 MiB
+**v1.1.0** · Native Apple Silicon · macOS 14 or later · English & Simplified Chinese · 3.32 MiB
 
-[Download for Mac](https://github.com/lokiwizard/folio/releases/download/v1.0.2/Folio-arm64.zip) · [Watch the 19-second demo](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4) · [English subtitles (SRT)](docs/media/folio-ip-adapter.en.srt) · [Browse exported notes sample](docs/examples/ip-adapter/notes.en.md)
+[Download for Mac](https://github.com/lokiwizard/folio/releases/download/v1.1.0/Folio-arm64.zip) · [Watch the 19-second demo](docs/media/folio-ip-adapter.mp4) · [English subtitles (SRT)](docs/media/folio-ip-adapter.en.srt) · [Browse exported notes sample](docs/examples/ip-adapter/notes.en.md)
 
-[![Play the Folio demo: pin a figure, drag it into Ask AI, and draw on the diagram](docs/media/en/folio-film-cover.webp)](https://github.com/lokiwizard/folio/releases/download/v1.0/folio-ip-adapter.mp4)
+[![Play the Folio demo: pin a figure, drag it into Ask AI, and draw on the diagram](docs/media/en/folio-film-cover.webp)](docs/media/folio-ip-adapter.mp4)
 
 ---
 
@@ -72,7 +72,7 @@ Folio also includes **lossless page extraction** (custom page ordering and passw
 
 ## Install and open a paper
 
-1. Download and unzip [Folio-arm64.zip](https://github.com/lokiwizard/folio/releases/download/v1.0.2/Folio-arm64.zip). If you build from source, the app is in `dist/Folio.app`.
+1. Download and unzip [Folio-arm64.zip](https://github.com/lokiwizard/folio/releases/download/v1.1.0/Folio-arm64.zip). If you build from source, the app is in `dist/Folio.app`.
 2. Drag `Folio.app` into **Applications** in Finder and open it. Quit any earlier version before updating. If your older copy has a Chinese filename, rename it to `Folio.app` before replacing it. Your settings and reading history carry over.
 3. Press **⌘O** or drop a PDF into the window. Reopen it later from **Recently opened**. For an encrypted PDF, enter the document password when prompted.
 
@@ -111,7 +111,7 @@ Reading, annotation, math rendering (KaTeX), and page extraction (qpdf) work com
 <details>
 <summary>AI services, questions, and conversations</summary>
 
-Open **Settings → AI services**, choose a provider, enter the API key, and click **Fetch models**. Choose a model returned for your account, then click **Save and use**. You can enter a model or endpoint ID manually when the provider has no model directory. **Test connection** sends a short message. Multiple saved configurations can coexist.
+Open **Settings → AI services**, choose a provider, enter the API key, and click **Save and use**. One key covers all models at that service endpoint. Click the model name in the composer to search, refresh, or switch models. Services without a model directory accept a model ID in Settings. Regional and custom endpoints keep separate keys.
 
 Folio supports OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud, Moonshot, Zhipu, Volcengine Ark, and custom HTTPS Chat Completions endpoints. Folio encrypts saved keys using this Mac’s Secure Enclave. A saved key is available after relaunch; configure it again on another Mac. The provider bills usage to the API account you choose.
 
@@ -120,6 +120,7 @@ Folio supports OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud, Moonsh
 | The whole paper | Open **Ask AI**, select the full-paper scope, and type a question. A new chat starts with five suggested questions. Use **Prompts** to add, edit, or remove as many as you like, including all of them. The list is shared across papers and persists after relaunch. Clicking a prompt fills the composer so you can edit it before sending. |
 | A passage | Select text and click **Ask AI**. The composer displays the full quotation. Choose **Explain**, **Translate**, or **Summarize**, or write your own question. Each selection joins the current conversation. You can also include the current page. |
 | One or more cards | Drag cards onto the collapsed capsule or open composer. A compact preview shows the drop position. A mark contributes its source text, and a figure contributes its original crop, with title and page. Figure questions require a model that accepts images. |
+| Other files | Click the paperclip, drag files from Finder, or press ⌘V in the question field to paste a screenshot or copied files. Attach images, PDFs, plain text, Markdown, CSV, or JSON. Folio extracts PDF text and sends pages without text as images. Remove individual attachments or preview the outgoing message with the eye button. |
 
 The composer can be moved or collapsed. Preview the destination and content before sending. Replies stream into the right sidebar with bold text and LaTeX rendering. Stop generation whenever you like, scroll back while it runs, or click a point on the timeline to jump to a turn. Each paper has its own history. Use **+** to start a chat, the history menu to switch, the trash button to delete a conversation, or the question’s context menu to delete a single exchange.
 

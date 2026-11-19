@@ -537,7 +537,7 @@ struct ChatPane: View {
     @State private var editingPrompts = false
     private var scrollMarker: TranscriptScrollMarker.Marker? { (r.pdf?.window as? ReaderWindow)?.transcriptMarker }
     @ViewBuilder private func anchor(_ id: UUID) -> some View {
-        if jump == id {
+        if selectedTurn == id {
             ChatJumpAnchor(id: id) { landed in if jump == landed { jump = nil } }
                 .allowsHitTesting(false).accessibilityHidden(true)
         }
@@ -588,7 +588,7 @@ struct ChatPane: View {
                                 }
                             }
                             ForEach(r.chat) { line in
-                                bubble(line.role, line.text, selection: line.selection, time: line.createdAt).contextMenu {
+                                bubble(line.role, line.bubbleText, selection: line.selection, time: line.createdAt).contextMenu {
                                     if line.role == "user" {
                                         Button(bilingual("删除这轮问答", "Delete this exchange"), role: .destructive) { r.deleteExchange(line.id) }
                                             .disabled(r.sending)
@@ -607,7 +607,7 @@ struct ChatPane: View {
                             }
                             if r.sending {
                                 if let turn = r.pendingTurn {
-                                    bubble("user", turn.text, selection: turn.selection, time: turn.createdAt).background { anchor(turn.id) }.id(turn.id)
+                                    bubble("user", turn.bubbleText, selection: turn.selection, time: turn.createdAt).background { anchor(turn.id) }.id(turn.id)
                                 } else { bubble("user", r.question, selection: r.citation) }
                                 if r.partialAnswer.isEmpty {
                                     HStack(spacing: 6) {

@@ -245,6 +245,112 @@ enum Verify {
             try store.set("fixture-replaced", for: id)
         }
     }
+    static func testProviderKeys(_ work: URL) throws {
+        let local = LocalStore(root: work.appendingPathComponent("provider-services"))
+        let legacy = Profile(.deepSeek)
+        var old = Preferences()
+        old.profiles = [legacy]; old.active = legacy.id
+        try local.write(old, to: "library.json")
+        let r = Reader(store: local)
+        try r.secrets.set("fixture-provider-first", for: legacy.id)
+        var draft = Profile(.deepSeek)
+        draft.base = "https://API.DEEPSEEK.COM:443/"
+        draft.model = "fixture-model-b"
+        let saved = try r.saveService(draft, key: "")
+        let reused = try r.serviceKey(for: draft)
+        try check(saved.id == legacy.id && saved.keyID == legacy.id && reused == "fixture-provider-first" && r.prefs.profiles.count == 1,
+                  "添加同厂商模型复用旧版本的加密密钥和服务 ID")
+        try r.cacheModels(["fixture-model-b", "fixture-model-c"], for: saved)
+        try r.selectModel("fixture-model-c", for: saved.id)
+        let reopened = Reader(store: local)
+        let active = reopened.profile!
+        let key = try reopened.serviceKey(for: active)
+        let req = try AIClient.request(profile: active, key: key, history: [ChatLine(role: "user", text: "fixture")])
+        let body = try JSONSerialization.jsonObject(with: req.httpBody!) as? [String: Any]
+        try check(active.modelChoices.contains("fixture-model-b") && body?["model"] as? String == "fixture-model-c" &&
+                  req.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-provider-first", "重开后模型目录、已选模型和请求使用同一服务密钥")
+        for (provider, base) in [(Provider.custom, legacy.base), (.deepSeek, "https://api.deepseek.com/other"), (.deepSeek, "https://example.invalid")] {
+            var other = Profile(provider); other.base = base
+            let result = try? reopened.serviceKey(for: other)
+            try check(result == nil, "不同厂商或服务地址不会取得其他配置的密钥")
+        }
+        var custom = Profile(.custom)
+        custom.base = "https://example.invalid/service"; custom.model = ""
+        let empty = try r.saveService(custom, key: "fixture-custom")
+        try check(empty.model.isEmpty && r.prefs.profiles.count == 2, "自定义服务可先保存密钥，再选择模型")
+        let replaced = try r.saveService(active, key: "fixture-provider-second")
+        let rotated = try r.serviceKey(for: replaced), independent = try r.serviceKey(for: empty)
+        try check(replaced.id == legacy.id && rotated == "fixture-provider-second" && independent == "fixture-custom",
+                  "更换厂商密钥保留模型服务，其他地址独立")
+        try r.deleteService(replaced.id)
+        let json = try String(contentsOf: local.root.appendingPathComponent("library.json"), encoding: .utf8)
+        try check(r.profile?.id == empty.id && !json.contains("fixture-custom") && !json.contains("fixture-provider-second"),
+                  "删除服务后回到另一服务，偏好文件中没有明文密钥")
+        try r.deleteService(empty.id)
+    }
+
+    static func testChatFiles(_ r: Reader, window: NSWindow, paper: URL, work: URL) throws {
+        let wasOpen = r.composerOpen
+        defer { r.resetChat(); r.composerOpen = wasOpen }
+        r.resetChat(); r.composerOpen = true; pause(0.2); paint(window)
+        func editor(in view: NSView) -> ChatQuestionField.Editor? {
+            if let input = view as? ChatQuestionField.Editor { return input }
+            return view.subviews.lazy.compactMap(editor).first
+        }
+        guard let input = editor(in: window.contentView!) else { throw ReaderError("未找到问答输入框") }
+        try focusForInput(window)
+        window.makeFirstResponder(input)
+        let board = r.imagePasteboard
+        func paste() throws {
+            guard NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) else { throw ReaderError("粘贴未送达编辑器") }
+        }
+        func settle() throws {
+            let deadline = Date().addingTimeInterval(8)
+            while r.importingFiles && Date() < deadline { pause(0.01) }
+            try check(!r.importingFiles && r.chatError.isEmpty, "附件在本机读取完成", details: r.chatError)
+        }
+        r.question = "before after"; pause(0.06)
+        input.setSelectedRange(NSRange(location: 7, length: 5))
+        board.clearContents(); board.setString("粘贴\ntext", forType: .string)
+        try paste()
+        try check(r.question == "before 粘贴\ntext", "原生粘贴在选区插入多行文字")
+        let image = try Data(contentsOf: URL(fileURLWithPath: "docs/examples/ip-adapter/figures/clip-001.png"))
+        board.clearContents(); board.setData(image, forType: .png)
+        try paste(); try settle()
+        let md = work.appendingPathComponent("attachment.md")
+        try "A separate Markdown attachment".write(to: md, atomically: true, encoding: .utf8)
+        board.clearContents(); board.writeObjects([paper as NSURL, md as NSURL])
+        try paste(); try settle()
+        let message = try awaitMessages(r).last!
+        try check(message.images?.count == 1 && message.images![0].starts(with: [0xff, 0xd8]) && message.text.contains("A separate Markdown attachment") &&
+                  message.text.contains(pageName(r.document!.pageCount - 1)) && message.fileNames?.count == 3 && !message.text.contains(work.path),
+                  "粘贴图片、Finder 多文件和 PDF 末页进入预览，图片编码与请求 MIME 一致")
+        r.question = ""
+        let unprompted = try awaitMessages(r).last!
+        try check(r.hasQuestionInput && PaperChat(messages: [unprompted]).title == message.fileNames?.first, "只有附件时也可以发送并以文件名识别对话")
+        let again = try JSONDecoder().decode(ChatLine.self, from: JSONEncoder().encode(message))
+        try check(again.forDisplay.fileNames == message.fileNames && again.forFollowUp.images == message.images, "文件名称和附件内容可随会话重开并继续追问")
+        let scanned = PDFDocument()
+        guard let bitmap = NSImage(data: image), let page = PDFPage(image: bitmap) else { throw ReaderError("无法创建扫描页样本") }
+        scanned.insert(page, at: 0)
+        board.clearContents(); board.setData(scanned.dataRepresentation()!, forType: .pdf)
+        try paste(); try settle()
+        let withScan = try awaitMessages(r)
+        try check(withScan.last?.images?.count == 2, "剪贴板中的扫描 PDF 以页图发送")
+        r.removeAttachment(r.attachments.last!.id)
+        let withoutScan = try awaitMessages(r)
+        try check(withoutScan.last?.images?.count == 1, "移除 PDF 后发送内容同步更新")
+        let bad = work.appendingPathComponent("attachment.bin")
+        try Data([0, 1, 2]).write(to: bad)
+        r.attachFiles([.file(bad)])
+        let deadline = Date().addingTimeInterval(3)
+        while r.importingFiles && Date() < deadline { pause(0.02) }
+        try check(r.chatError.contains("attachment.bin") && r.attachments.count == 3, "无法读取的文件有明确提示并保留已有附件")
+        r.attachFiles([.file(paper)])
+        r.resetChat(); pause(0.15)
+        try check(r.attachments.isEmpty && r.chatError.isEmpty, "旧会话正在加载的文件不会进入新会话")
+    }
+
     static func testMath() throws {
         try check(!MathAnswer.containsMarkup("Cost is $20") && MathAnswer.containsMarkup("Energy $E=mc^2$"), "单个货币符号使用原生文字，完整公式启用数学排版")
         try check(MathAnswer.containsMarkup("\\### 网络输入与输出") && !MathAnswer.containsMarkup("正文里的 ### 符号"),
@@ -329,6 +435,8 @@ enum Verify {
         try check(firstPage.numberOfCharacters > 0 && r.document!.pageCount > 2, "真实论文文本层与页面")
         try testTextCursor(r, window)
         try testReadingEdges(r, window)
+        try testProviderKeys(work)
+        try testChatFiles(r, window: window, paper: paper, work: work)
         try testPaperPrompts(r, window)
         try testInlinePlacement()
         try testChatWheel(r, window)
@@ -540,7 +648,7 @@ enum Verify {
                   "发送预览不包含批注和便签的个人备注")
         let old = ChatLine(role: "user", text: "Excerpt + private legacy comment", displayText: "What did the authors measure?")
         try check(old.forFollowUp.text == old.displayText, "旧对话追问不再转发混入备注的旧附件文本")
-        let emptySource = CardAttachment(Excerpt(text: "", note: "private-only", lines: card.lines))
+        let emptySource = ChatAttachment(Excerpt(text: "", note: "private-only", lines: card.lines))
         try check(!emptySource.label.contains("private-only"), "无文字层的批注也不会在引用标签中显示备注")
         r.send()
         let attachmentDeadline = Date().addingTimeInterval(5)
@@ -1062,6 +1170,7 @@ enum Verify {
         let observer = r.$hasText.sink { selected in
             if selected { sawTextCursor = NSCursor.current == .iBeam }
         }
+        try focusForInput(window)
         let midpoint = CGPoint(x: (first.x + last.x) / 2, y: first.y)
         // Put the matching drag and release first in PDFKit's native mouse-tracking loop.
         for (type, point) in [(NSEvent.EventType.leftMouseUp, last), (.leftMouseDragged, last), (.leftMouseDragged, midpoint)] {
@@ -1170,19 +1279,34 @@ enum Verify {
                   stored.messages[0].forDisplay.createdAt == nil, "问答时间随历史保存，兼容没有时间戳的旧记录")
         r.openChat(stored); r.panel = .chat; pause(0.45); paint(window)
         guard let marker = (window as? ReaderWindow)?.transcriptMarker, let scroll = marker.enclosingScrollView else { throw ReaderError("未找到时间线旁的对话视口") }
-        func jump(_ index: Int) -> CGFloat {
+        func jump(_ index: Int) throws -> CGFloat {
+            try focusForInput(window)
             let frame = scroll.convert(scroll.bounds, to: nil)
             click(window, at: CGPoint(x: frame.maxX + 12, y: frame.maxY - 21 - CGFloat(index) * 24))
             pause(0.18); paint(window)
-            return scroll.contentView.bounds.minY
+            func selectedRow(in node: NSView) -> ChatJumpAnchor.AnchorView? {
+                if let row = node as? ChatJumpAnchor.AnchorView, row.target == messages[index * 2].id { return row }
+                return node.subviews.lazy.compactMap(selectedRow).first
+            }
+            guard let doc = scroll.documentView, let row = selectedRow(in: doc) else {
+                throw ReaderError("时间线未定位到第 \(index + 1) 个问题")
+            }
+            let clip = scroll.contentView, rect = doc.convert(row.bounds, from: row)
+            var goal = clip.bounds
+            goal.origin.y = doc.isFlipped ? rect.minY - 10 : rect.maxY - goal.height + 10
+            let expected = clip.constrainBoundsRect(goal).minY
+            try check(abs(clip.bounds.minY - expected) < 4 && marker.awaitingJump == nil, "时间线跳转后显示选中问题",
+                      details: "index=\(index), expected=\(expected), actual=\(clip.bounds.minY)")
+            return clip.bounds.minY
         }
         let bottom = scroll.contentView.bounds.minY
-        let first = jump(0), middle = jump(5), last = jump(11), again = jump(5)
-        try check(bottom > 600 && first < 25 && middle > first + 250 && last > middle + 250 &&
-                  abs(again - middle) < 4 && marker.awaitingJump == nil, "点击半透明圆点跳到首轮、中间轮和末轮，再次定位保持一致")
+        let first = try jump(0), middle = try jump(5), last = try jump(11)
+        _ = try jump(5)
+        try check(bottom > 600 && first < 25 && middle > first + 250 && last > middle + 250,
+                  "点击半透明圆点跳到首轮、中间轮和末轮，再次定位保持一致")
         r.question = "追加问题"
         r.sending = true; r.partialAnswer = "正在生成"; pause(0.2)
-        let reading = jump(2)
+        let reading = try jump(2)
         r.partialAnswer += String(repeating: "新的答案继续输出。\n", count: 15)
         pause(0.25)
         try check(abs(scroll.contentView.bounds.minY - reading) < 5, "生成期间点时间线回看前文时保留阅读位置")
