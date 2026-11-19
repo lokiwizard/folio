@@ -1,0 +1,31 @@
+1
+00:00:00,100 --> 00:00:02,250
+Drag to select the diagram. Click Pin.
+
+2
+00:00:02,250 --> 00:00:04,550
+Turn the page. The diagram stays in the sidebar.
+
+3
+00:00:04,550 --> 00:00:06,125
+Highlight a passage and find it under Marks.
+
+4
+00:00:06,125 --> 00:00:08,250
+Drag a pinned figure onto Ask AI.
+
+5
+00:00:08,250 --> 00:00:09,625
+Send a message with the figure and passage attached.
+
+6
+00:00:09,625 --> 00:00:11,950
+Chat shows Thinking, then streams the reply.
+
+7
+00:00:11,950 --> 00:00:13,240
+Open the pinned figure and select Rectangle.
+
+8
+00:00:13,240 --> 00:00:16,000
+Frame a module, then draw an arrow.

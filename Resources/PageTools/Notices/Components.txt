@@ -1,0 +1,10 @@
+Folio page extraction uses qpdf 12.4.2 and libjpeg-turbo 3.2.0.
+This software is based in part on the work of the Independent JPEG Group.
+
+https://github.com/qpdf/qpdf/releases/tag/v12.4.2
+qpdf-12.4.2.tar.gz SHA-256 8a58af5b6141319287c1883bec8bd1bd545b7567b7fc5e6ce5d25a1c85f36397
+https://github.com/libjpeg-turbo/libjpeg-turbo/releases/tag/3.2.0
+libjpeg-turbo-3.2.0.tar.gz SHA-256 6f30092cef9fb839779646608f4ee14ae3cbac989c47fa05e841b0841f09878e
+
+Both libraries use unmodified upstream source, compiled for arm64 macOS 14.
+The helper statically links libqpdf, native crypto and libjpeg, and uses system zlib.

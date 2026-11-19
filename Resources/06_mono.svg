@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1024 1024" width="1024" height="1024" role="img"><title>06 Mono 字母标 — PDF Reader App Icon</title><defs><linearGradient id="bgf" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#2C343E"/><stop offset="100%" stop-color="#111820"/></linearGradient></defs><path d="M 256 12 C 108 12 12 108 12 256 V 768 C 12 916 108 1012 256 1012 H 768 C 916 1012 1012 916 1012 768 V 256 C 1012 108 916 12 768 12 Z" fill="url(#bgf)"/>
+<g transform="translate(-4 20)">
+<path d="M 331 758 V 271 Q 331 248 354 248 H 551 Q 723 248 723 423 Q 723 602 545 602 H 431" fill="none" stroke="#EDF4F2" stroke-width="91" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 548 347 H 565 Q 630 347 630 423 Q 630 503 565 503 H 515" fill="none" stroke="#BEF27E" stroke-width="34" stroke-linecap="round"/>
+<circle cx="329" cy="759" r="45.5" fill="#BEF27E"/>
+</g>
+</svg>
