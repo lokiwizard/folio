@@ -1,12 +1,86 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data: blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'none'"><title>Folio</title>
-<link rel="stylesheet" href="../assets/pdf/web/pdf_viewer.css"><link rel="stylesheet" href="style.css"></head>
-<body><header><div class="toolGroup" data-doc><button id="navToggle" data-icon="panel-left" data-label="导航|Navigate"></button><button id="back" data-icon="chevron-left" data-label="返回|Back"></button></div><span id="appTitle">Folio</span><span id="docTitle"></span><div class="space"></div><div class="toolGroup" data-doc><button id="findToggle" data-icon="search" data-label="查找|Find"></button><button id="clip" data-icon="square-dashed" data-label="框选图表|Clip figure"></button><button id="rightToggle" data-icon="panel-right" data-label="精读侧栏|Inspector"></button><button id="more" data-icon="circle-ellipsis" data-label="更多操作|More"></button></div><div class="toolGroup" data-library><button id="lang" data-icon="globe" data-label="界面语言|Language"></button><button id="settings" data-icon="settings" data-label="设置|Settings"></button></div></header>
-<main id="library"><section><div class="libraryHead"><h1 data-label="最近打开|Recently opened"></h1><button id="libraryOpen" data-label="打开 PDF|Open PDF"></button></div><div id="recents"></div></section></main>
-<main id="desk" hidden><aside id="navigation"><div id="navTabs" class="tabs"></div><div id="navList" class="scroll"></div></aside><div id="leftDivider" class="divider"></div>
-<section id="reading"><div id="paperTitle" hidden></div><div id="findBar" hidden><input id="query" type="search" data-placeholder="查找正文|Find in paper"><span id="matches"></span><button id="prevMatch">↑</button><button id="nextMatch">↓</button><button id="closeFind">×</button></div>
-<div id="canvasArea"><div id="viewerContainer" tabindex="0"><div id="viewer" class="pdfViewer"></div></div><button id="ask" class="askPill" aria-label="问 AI"><i class="askSymbol"></i><strong data-label="问 AI|Ask AI"></strong><i class="caret"></i></button></div>
-<footer><button id="previous">‹</button><input id="page" type="number" min="1" aria-label="Page"><span id="pageCount"></span><button id="next">›</button><div class="space"></div><button id="zoomOut">−</button><select id="zoom"></select><button id="zoomIn">+</button><button id="display" data-icon="layers" data-label="显示模式|Display mode"></button></footer></section>
-<div id="rightDivider" class="divider"></div><aside id="inspector"><div id="rightTabs" class="tabs"></div><div id="rightContent"></div></aside></main>
-<div id="actionBar" class="popover" hidden></div><div id="toast" role="status" hidden></div><div id="printPages"></div>
-<script src="../assets/math/katex.min.js"></script><script type="module" src="app.mjs"></script></body></html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data: blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'none'"
+    />
+    <title>Folio</title>
+    <link rel="stylesheet" href="../assets/pdf/web/pdf_viewer.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="toolGroup" data-doc>
+        <button id="navToggle" data-icon="panel-left" data-label="导航|Navigate"></button
+        ><button id="back" data-icon="chevron-left" data-label="返回|Back"></button>
+      </div>
+      <span id="appTitle">Folio</span><span id="docTitle"></span>
+      <div class="space"></div>
+      <div class="toolGroup" data-doc>
+        <button id="findToggle" data-icon="search" data-label="查找|Find"></button
+        ><button id="clip" data-icon="square-dashed" data-label="框选图表|Clip figure"></button
+        ><button id="rightToggle" data-icon="panel-right" data-label="精读侧栏|Inspector"></button
+        ><button id="more" data-icon="circle-ellipsis" data-label="更多操作|More"></button>
+      </div>
+      <div class="toolGroup" data-library>
+        <button id="lang" data-icon="globe" data-label="界面语言|Language"></button
+        ><button id="settings" data-icon="settings" data-label="设置|Settings"></button>
+      </div>
+    </header>
+    <main id="library">
+      <section>
+        <div class="libraryHead">
+          <h1 data-label="最近打开|Recently opened"></h1>
+          <button id="libraryOpen" data-label="打开 PDF|Open PDF"></button>
+        </div>
+        <div id="recents"></div>
+      </section>
+    </main>
+    <main id="desk" hidden>
+      <aside id="navigation">
+        <div id="navTabs" class="tabs"></div>
+        <div id="navList" class="scroll"></div>
+      </aside>
+      <div id="leftDivider" class="divider"></div>
+      <section id="reading">
+        <div id="paperTitle" hidden></div>
+        <div id="findBar" hidden>
+          <input id="query" type="search" data-placeholder="查找正文|Find in paper" /><span
+            id="matches"
+          ></span
+          ><button id="prevMatch">↑</button><button id="nextMatch">↓</button
+          ><button id="closeFind">×</button>
+        </div>
+        <div id="canvasArea">
+          <div id="viewerContainer" tabindex="0"><div id="viewer" class="pdfViewer"></div></div>
+          <button id="ask" class="askPill" aria-label="问 AI">
+            <i class="askSymbol"></i><strong data-label="问 AI|Ask AI"></strong><i class="caret"></i>
+          </button>
+        </div>
+        <footer>
+          <button id="previous">‹</button
+          ><input id="page" type="number" min="1" aria-label="Page" /><span id="pageCount"></span
+          ><button id="next">›</button>
+          <div class="space"></div>
+          <button id="zoomOut">−</button
+          ><select id="zoom"></select
+          ><button id="zoomIn">+</button
+          ><button id="display" data-icon="layers" data-label="显示模式|Display mode"></button>
+        </footer>
+      </section>
+      <div id="rightDivider" class="divider"></div>
+      <aside id="inspector">
+        <div id="rightTabs" class="tabs"></div>
+        <div id="rightContent"></div>
+      </aside>
+    </main>
+    <div id="actionBar" class="popover" hidden></div>
+    <div id="toast" role="status" hidden></div>
+    <div id="printPages"></div>
+    <script src="../assets/math/katex.min.js"></script>
+    <script type="module" src="app.mjs"></script>
+  </body>
+</html>

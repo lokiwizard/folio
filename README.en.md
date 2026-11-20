@@ -14,6 +14,8 @@ Tired of flipping back ten pages to check an architecture diagram while reading 
 
 [![Play the Folio demo: pin a figure, drag it into Ask AI, and draw on the diagram](docs/media/en/folio-film-cover.webp)](docs/media/folio-ip-adapter.mp4)
 
+For Windows x64 installation, builds and verification, see the [Windows desktop client](windows/README.md).
+
 ---
 
 ## Why Folio

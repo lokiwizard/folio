@@ -34,6 +34,8 @@ jobs:
           if (!(Test-Path $exe)) { throw 'Installed executable missing' }
           "FOLIO_TEST_EXE=$exe" | Out-File -Append $env:GITHUB_ENV -Encoding utf8
       - name: Test the installed application
+        env:
+          FOLIO_SCREENSHOT_DIR: ${{ github.workspace }}/dist/windows
         run: npm run test:ui
       - uses: actions/upload-artifact@v4
         with:
@@ -41,3 +43,4 @@ jobs:
           path: |
             dist/windows/FolioSetup-*-x64.exe
             dist/windows/Folio-*-win-x64.zip
+            dist/windows/Folio-Windows-reading.png

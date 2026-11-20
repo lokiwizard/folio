@@ -14,6 +14,8 @@
 
 [![播放 Folio 操作演示：框选图表、拖动便签、标注架构图并向 AI 提问](docs/media/folio-film-cover.webp)](docs/media/folio-ip-adapter.mp4)
 
+Windows x64 桌面版的安装、构建与测试见 [Windows 客户端](windows/README.md)。
+
 ---
 
 ## 为什么选择 Folio
