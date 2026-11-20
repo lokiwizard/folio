@@ -1,7 +1,7 @@
 {
   "name": "folio-windows",
   "productName": "Folio",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Folio research PDF reader for Windows",
   "author": "Folio",
   "private": true,

@@ -5,7 +5,7 @@ import {
   el,
   btn,
   icon,
-  iconButton,
+  action,
   inputDialog,
   menu,
   popup,
@@ -37,7 +37,12 @@ function tab(kind = right, focus) {
     ...tabs.map(([k, t]) => {
       const b = btn(t, () => tab(k), right === k ? 'active' : '');
       b.setAttribute('aria-label', t);
-      b.prepend(icon({ pin: 'pin', note: 'highlighter', chat: 'messages-square' }[k]));
+      b.title = t;
+      b.setAttribute('aria-pressed', String(k === right));
+      b.replaceChildren(
+        icon({ pin: 'pin', note: 'highlighter', chat: 'messages-square' }[k]),
+        el('span', { textContent: t })
+      );
       if (right === k && k !== 'chat' && S.state)
         b.append(el('small', { textContent: String(S.state.cards.filter((c) => c.kind === k).length) }));
       return b;
@@ -61,6 +66,8 @@ function layout() {
   $('rightToggle').classList.toggle('active', inspector);
   $('paperTitle').hidden = !nav;
   $('docTitle').hidden = nav;
+  const room = Math.max(230, innerWidth - (nav ? $('navigation').offsetWidth + 7 : 0) - 347);
+  $('inspector').style.maxWidth = Math.min(innerWidth * 0.5, room) + 'px';
   $('inspector').style.width =
     (S.settings.widths?.[nav ? 'three' : 'two'] || Math.min(50, (336 / innerWidth) * 100)) + '%';
 }
@@ -186,18 +193,18 @@ Object.assign(configHooks, {
 const open = () => reader.openPaper(() => folio.open(false));
 function fileMenu(e) {
   const actions = [
-    [T('打开 PDF…', 'Open PDF…'), open],
-    [T('返回最近打开', 'Recently opened'), reader.closePaper],
-    [T('添加书签', 'Add bookmark'), reader.bookmark],
-    [T('导出 Markdown 笔记…', 'Export Markdown notes…'), exportNotes],
-    [T('提取页面为 PDF…', 'Extract pages to PDF…'), reader.extract],
-    [T('打印…', 'Print…'), () => reader.printPaper(false)],
-    [T('打印当前页', 'Print current page'), () => reader.printPaper(true)],
-    [T('全屏', 'Fullscreen'), folio.fullscreen],
-    [T('界面语言', 'Language'), language],
-    [T('设置…', 'Settings…'), () => settings()],
+    ['folder-open', T('打开 PDF…', 'Open PDF…'), open],
+    ['clock', T('返回最近打开', 'Recently opened'), reader.closePaper],
+    ['bookmark-plus', T('添加书签', 'Add bookmark'), reader.bookmark],
+    ['notebook-pen', T('导出 Markdown 笔记…', 'Export Markdown notes…'), exportNotes],
+    ['file-output', T('提取页面为 PDF…', 'Extract pages to PDF…'), reader.extract],
+    ['printer', T('打印…', 'Print…'), () => reader.printPaper(false)],
+    ['file-text', T('打印当前页', 'Print current page'), () => reader.printPaper(true)],
+    ['scan', T('全屏', 'Fullscreen'), folio.fullscreen],
+    ['globe', T('界面语言', 'Language'), language],
+    ['settings', T('设置…', 'Settings…'), () => settings()],
   ];
-  menu(e.clientX, e.clientY, ...actions.map(([l, f]) => btn(l, f)));
+  menu(e.clientX, e.clientY, ...actions.map(([symbol, l, f]) => action(symbol, l, f)));
 }
 const on = (id, fn) => $(id).addEventListener('click', guard(fn));
 on('rightToggle', () => {
@@ -211,6 +218,7 @@ on('more', fileMenu);
 on('navToggle', () => {
   nav = !nav;
   layout();
+  reader.revealCurrentThumb();
 });
 on('clip', reader.toggleClip);
 on('ask', openComposer);

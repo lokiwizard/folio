@@ -316,7 +316,9 @@ export function showChat() {
       save();
       showChat();
     });
-  root.append(row(switcher, add, del), thread, timeline);
+  const sessionBar = row(el('label', { class: 'sessionPicker' }, icon('history'), switcher), add, del);
+  sessionBar.classList.add('sessionBar');
+  root.append(sessionBar, thread, timeline);
   for (const t of c.turns) {
     const q = el('div', { class: 'message user', textContent: [...t.names, t.question].join('\n') });
     q.oncontextmenu = (e) => {
@@ -344,6 +346,7 @@ export function showChat() {
         $('question').value = draft;
         $('question').focus();
       });
+      b.prepend(icon('text-quote'));
       thread.append(b);
     }
   }
@@ -369,7 +372,9 @@ export function showChat() {
       showChat();
     }
   });
-  root.firstElementChild.append(el('span', { class: 'space' }), promptEdit);
+  promptEdit.prepend(icon('sliders-horizontal'));
+  promptEdit.classList.add('promptEdit');
+  sessionBar.append(promptEdit);
   const heading = row(grip, el('span', { class: 'space' }));
   heading.classList.add('composerHead');
   composer.append(heading);

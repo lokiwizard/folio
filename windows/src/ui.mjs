@@ -63,7 +63,9 @@ export function hidePopup() {
 document.addEventListener('pointerdown', (ev) => {
   if (!ev.target.closest('#actionBar')) hidePopup();
 });
-$('actionBar').addEventListener('click', (event) => { if (event.target.closest('button')) hidePopup(); });
+$('actionBar').addEventListener('click', (event) => {
+  if (event.target.closest('button')) hidePopup();
+});
 export function modal(title, ...nodes) {
   const d = el('dialog');
   const close = btn('×', () => d.close());
@@ -112,6 +114,11 @@ export function iconButton(name, title, fn) {
   b.title = title;
   b.append(icon(name));
   return b;
+}
+export function action(name, label, fn, cls = '') {
+  const button = btn(label, fn, 'action ' + cls);
+  button.prepend(icon(name));
+  return button;
 }
 export function localize() {
   document.documentElement.lang = T('zh-CN', 'en');

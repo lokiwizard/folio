@@ -1,8 +1,8 @@
 # Folio for Windows
 
-Windows x64 的桌面客户端。安装版为 `FolioSetup-1.1.0-x64.exe`，便携版请完整解压 `Folio-1.1.0-win-x64.zip` 后启动 Folio.exe。PDF.js、字体映射、KaTeX 和 qpdf 随程序分发。阅读与导出可离线使用。
+Windows x64 的桌面客户端。安装版为 `FolioSetup-1.1.1-x64.exe`，便携版请完整解压 `Folio-1.1.1-win-x64.zip` 后启动 Folio.exe。PDF.js、字体映射、KaTeX 和 qpdf 随程序分发。阅读与导出可离线使用。
 
-Ctrl+O 打开文件，Ctrl+F 查找，Ctrl+L 定位，Ctrl+D 添加书签，Ctrl+[ 返回，Ctrl+P 打印。右上角“框选图表”可将区域固定在右侧。点便签预览图可标注，拖入“问 AI”可引用原始裁图。Ctrl+Enter 发送问题。每篇论文按 PDF 文件内容识别，阅读记录存放在用户应用数据目录，API 密钥由 Electron safeStorage 调用 Windows DPAPI 加密。
+Ctrl+O 打开文件，Ctrl+F 查找，Ctrl+L 定位，Ctrl+D 添加书签，Ctrl+[ 返回，Ctrl+P 打印。右上角“框选图表”可将区域固定在右侧。点便签预览图可标注，拖入“问 AI”可引用原始裁图。标注时按住 Shift 可画正圆、正方形或锁定直线角度。双击形状可输入文字，拖动箭头端点可调整方向。空格加拖动可平移，Ctrl 加滚轮可缩放，Ctrl+0 显示全图。Ctrl+Enter 在标注时结束文字编辑，在问答时发送问题。每篇论文按 PDF 文件内容识别，阅读记录存放在用户应用数据目录，API 密钥由 Electron safeStorage 调用 Windows DPAPI 加密。
 
 ## 构建
 

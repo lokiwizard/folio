@@ -51,8 +51,8 @@
           <input id="query" type="search" data-placeholder="查找正文|Find in paper" /><span
             id="matches"
           ></span
-          ><button id="prevMatch">↑</button><button id="nextMatch">↓</button
-          ><button id="closeFind">×</button>
+          ><button id="prevMatch" data-icon="chevron-up" data-label="上一处|Previous match"></button><button id="nextMatch" data-icon="chevron-down" data-label="下一处|Next match"></button
+          ><button id="closeFind" data-icon="x" data-label="关闭查找|Close search"></button>
         </div>
         <div id="canvasArea">
           <div id="viewerContainer" tabindex="0"><div id="viewer" class="pdfViewer"></div></div>
@@ -61,13 +61,13 @@
           </button>
         </div>
         <footer>
-          <button id="previous">‹</button
+          <button id="previous" data-icon="chevron-left" data-label="上一页|Previous page"></button
           ><input id="page" type="number" min="1" aria-label="Page" /><span id="pageCount"></span
-          ><button id="next">›</button>
+          ><button id="next" data-icon="chevron-right" data-label="下一页|Next page"></button>
           <div class="space"></div>
-          <button id="zoomOut">−</button
+          <button id="zoomOut" data-icon="minus" data-label="缩小|Zoom out"></button
           ><select id="zoom"></select
-          ><button id="zoomIn">+</button
+          ><button id="zoomIn" data-icon="plus" data-label="放大|Zoom in"></button
           ><button id="display" data-icon="layers" data-label="显示模式|Display mode"></button>
         </footer>
       </section>

@@ -7,6 +7,8 @@ import {
   el,
   btn,
   icon,
+  iconButton,
+  action,
   select,
   popup,
   hidePopup,
@@ -228,6 +230,7 @@ bus.on('pagechanging', ({ pageNumber }) => {
   $('page').value = pageNumber;
   for (const b of $('navList').querySelectorAll('.thumbnail'))
     b.classList.toggle('current', Number(b.dataset.page) === pageNumber);
+  revealCurrentThumb();
 });
 bus.on('pagerendered', ({ pageNumber }) => marks(pageNumber));
 bus.on('updatefindmatchescount', ({ matchesCount: c }) => {
@@ -311,6 +314,10 @@ export async function bookmark() {
   hooks.openNav?.();
   await navigation('bookmarks');
 }
+export function revealCurrentThumb() {
+  if (navMode === 'pages' && !$('navigation').hidden)
+    $('navList').querySelector('.thumbnail.current')?.scrollIntoView({ block: 'nearest' });
+}
 export async function navigation(mode = navMode) {
   navMode = mode;
   thumbObserver?.disconnect();
@@ -318,6 +325,7 @@ export async function navigation(mode = navMode) {
   if (!doc) return;
   const list = $('navList');
   list.replaceChildren();
+  list.dataset.mode = mode;
   const tabs = [
     ['pages', T('页面', 'Pages')],
     ['outline', T('目录', 'Outline')],
@@ -326,52 +334,110 @@ export async function navigation(mode = navMode) {
   $('navTabs').replaceChildren(
     ...tabs.map(([v, t]) => {
       const b = btn(t, () => navigation(v), v === mode ? 'active' : '');
-      b.prepend(icon({ pages: 'panels-top-left', outline: 'align-left', bookmarks: 'bookmark' }[v]));
+      b.setAttribute('aria-label', t);
+      b.setAttribute('aria-pressed', String(v === mode));
+      b.title = t;
+      b.replaceChildren(
+        icon({ pages: 'gallery-vertical-end', outline: 'list-tree', bookmarks: 'bookmark' }[v]),
+        el('span', { textContent: t })
+      );
       return b;
     })
   );
   if (mode === 'bookmarks') {
-    list.append(btn(T('添加书签', 'Add bookmark'), bookmark));
-    S.state.bookmarks.forEach((b) =>
+    list.append(action('bookmark-plus', T('添加书签', 'Add bookmark'), bookmark, 'addMark'));
+    for (const mark of S.state.bookmarks) {
+      const jump = btn('', () => go(mark.page, mark.point, true), 'markJump');
+      jump.append(
+        icon('bookmark'),
+        el(
+          'span',
+          {},
+          el('strong', { textContent: mark.name }),
+          el('small', { textContent: pageLabel(mark.page) })
+        )
+      );
+      const item = el(
+        'div',
+        { class: 'bookmarkRow' },
+        jump,
+        iconButton('pencil', T('重命名', 'Rename'), async () => {
+          const value = await inputDialog(T('重命名', 'Rename'), mark.name);
+          if (value === null) return;
+          mark.name = value;
+          save();
+          navigation(mode);
+        }),
+        iconButton('trash-2', T('删除书签', 'Delete bookmark'), () => {
+          S.state.bookmarks = S.state.bookmarks.filter((m) => m !== mark);
+          save();
+          navigation(mode);
+        })
+      );
+      list.append(item);
+    }
+    if (!S.state.bookmarks.length)
       list.append(
         el(
           'div',
-          { class: 'tools' },
-          btn(b.name, () => go(b.page, b.point, true)),
-          btn('✎', async () => {
-            const s = await inputDialog(T('重命名', 'Rename'), b.name);
-            if (s !== null) {
-              b.name = s;
-              save();
-              navigation(mode);
-            }
-          }),
-          btn('×', () => {
-            S.state.bookmarks = S.state.bookmarks.filter((x) => x !== b);
-            save();
-            navigation(mode);
+          { class: 'navEmpty' },
+          icon('book-marked'),
+          el('strong', { textContent: T('还没有书签', 'No bookmarks yet') }),
+          el('span', {
+            textContent: T('按 Ctrl+D 记住当前阅读位置。', 'Press Ctrl+D to save your place.'),
           })
         )
-      )
-    );
+      );
   } else if (mode === 'outline') {
     const tree = await doc.getOutline();
     if (doc !== S.doc || mode !== navMode) return;
-    function add(items, depth) {
+    function add(parent, items, depth) {
       for (const item of items || []) {
-        const b = btn(item.title, async () => {
-          if (item.dest) {
-            history.push(getLocation());
-            await links.goToDestination(item.dest);
-          }
-        });
-        b.style.marginInlineStart = depth * 8 + 'px';
-        list.append(b, el('br'));
-        add(item.items, depth + 1);
+        const children = el('div', { class: 'outlineChildren', hidden: true });
+        const expand = () => {
+          children.hidden = !children.hidden;
+          disclosure.replaceChildren(icon(children.hidden ? 'chevron-right' : 'chevron-down'));
+          disclosure.setAttribute('aria-expanded', String(!children.hidden));
+        };
+        const disclosure = iconButton('chevron-right', T('展开或折叠章节', 'Toggle section'), expand);
+        disclosure.setAttribute('aria-expanded', 'false');
+        const jump = btn(
+          item.title,
+          async () => {
+            if (item.dest) {
+              history.push(getLocation());
+              await links.goToDestination(item.dest);
+              list.querySelector('.outlineItem.current')?.classList.remove('current');
+              itemRow.classList.add('current');
+            } else if (item.items?.length) expand();
+          },
+          'outlineJump'
+        );
+        const itemRow = el(
+          'div',
+          { class: 'outlineItem' },
+          item.items?.length ? disclosure : icon('file-text'),
+          jump
+        );
+        itemRow.style.paddingInlineStart = Math.min(depth, 5) * 10 + 4 + 'px';
+        const group = el('div', { class: depth === 0 ? 'outlineRoot' : '' }, itemRow);
+        parent.append(group);
+        if (item.items?.length) {
+          group.append(children);
+          add(children, item.items, depth + 1);
+        }
       }
     }
-    add(tree, 0);
-    if (!tree) list.textContent = T('无目录', 'No outline');
+    add(list, tree, 0);
+    if (!tree?.length)
+      list.append(
+        el(
+          'div',
+          { class: 'navEmpty' },
+          icon('list-tree'),
+          el('strong', { textContent: T('此 PDF 没有目录', 'This PDF has no outline') })
+        )
+      );
   } else {
     thumbObserver = new IntersectionObserver(
       (entries) => {
@@ -381,7 +447,8 @@ export async function navigation(mode = navMode) {
           const p = Number(e.target.dataset.page);
           renderCrop(doc, p, null, 180, S.state.rotations[p], true)
             .then((c) => {
-              if (e.target.isConnected) e.target.prepend(el('img', { src: c.toDataURL() }));
+              if (e.target.isConnected)
+                e.target.firstChild.replaceChildren(el('img', { src: c.toDataURL(), alt: '' }));
             })
             .catch(() => {});
         }
@@ -390,11 +457,16 @@ export async function navigation(mode = navMode) {
     );
     for (let p = 1; p <= doc.numPages; p++) {
       const b = btn(pageLabel(p), () => go(p, null, true), 'thumbnail');
+      b.replaceChildren(
+        el('span', { class: 'thumbPaper' }),
+        el('span', { class: 'thumbCaption', textContent: pageLabel(p) })
+      );
       b.classList.toggle('current', p === current());
       b.dataset.page = p;
       list.append(b);
       thumbObserver.observe(b);
     }
+    revealCurrentThumb();
   }
 }
 function viewportRect(v, [x, y, X, Y]) {

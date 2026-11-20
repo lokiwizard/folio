@@ -39,7 +39,7 @@ fs.writeFileSync(
     '\nexport function renderMath(text,node){const part=document.createDocumentFragment();const formulas=new Map();appendMarkdown(text,part,formulas,true);node.replaceChildren(part);previousFormulas=formulas;}\n'
 );
 const icons =
-  'panel-left panel-right chevron-left chevron-right chevron-down chevron-up search square-dashed ellipsis circle-ellipsis globe settings folder-open file-text clock pin highlighter messages-square square-pen message-square align-left bookmark panels-top-left layers plus minus rotate-cw copy pencil move-horizontal image circle-help paperclip eye arrow-up send-horizontal cpu trash-2 history circle-plus book-open contrast layout-list arrow-up-left undo-2 redo-2 square circle slash move type x check'.split(
+  'panel-left panel-right chevron-left chevron-right chevron-down chevron-up search square-dashed ellipsis circle-ellipsis globe settings folder-open file-text clock pin highlighter messages-square square-pen message-square align-left bookmark panels-top-left layers plus minus rotate-cw copy pencil move-horizontal image circle-help paperclip eye arrow-up send-horizontal cpu trash-2 history circle-plus book-open contrast layout-list arrow-up-left undo-2 redo-2 square circle slash move type x check mouse-pointer-2 move-up-right hand scan book-marked list-tree notebook-pen bookmark-plus list-filter palette scaling file-output printer text-cursor-input sliders-horizontal text-quote pen-line gallery-vertical-end'.split(
     ' '
   );
 for (const name of icons)

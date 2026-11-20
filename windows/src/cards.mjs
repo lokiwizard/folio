@@ -13,7 +13,8 @@ import {
   save,
   toast,
   pageLabel,
-  popup,
+  menu,
+  action,
 } from './ui.mjs';
 import { tagTitle } from './settings.mjs';
 import { go, refreshMarks } from './reader.mjs';
@@ -65,63 +66,89 @@ function reorder(source, target, below) {
   changed();
 }
 function cardOptions(c, e) {
-  const title = btn(T('重命名', 'Rename'), async () => {
-    const v = await inputDialog(T('卡片名称', 'Card title'), c.title || '');
-    if (v !== null) {
-      c.title = v;
-      changed();
-    }
-  });
-  const memo = btn(T('编辑备注', 'Edit note'), async () => {
-    const v = await inputDialog(T('个人备注', 'Personal note'), c.note || '', { multi: true });
-    if (v !== null) {
-      c.note = v;
-      c.noteEditedAt = Date.now();
-      changed();
-    }
-  });
-  const scale = select(
-    [0.8, 1, 1.25, 1.5, 2].map((x) => [String(x), x * 100 + '%']),
-    String(c.scale || 1),
-    (v) => {
-      c.scale = Number(v);
-      changed();
-    }
-  );
+  const field = (symbol, label, input) =>
+    el('label', { class: 'menuField' }, icon(symbol), el('span', { textContent: label }), input);
   const tools = [
-    title,
-    memo,
-    scale,
-    btn(T('问 AI', 'Ask AI'), () => cardHooks.chat(c)),
-    btn(T('删除', 'Delete'), () => removeCard(c)),
-  ];
-  if (c.kind === 'pin') {
-    const color = el('input', {
-      type: 'color',
-      value: c.color || '#fafafa',
-      title: T('便签底色', 'Card background'),
-      onchange: (e) => {
-        c.color = e.target.value;
+    action('pencil', T('重命名', 'Rename'), async () => {
+      const v = await inputDialog(T('卡片名称', 'Card title'), c.title || '');
+      if (v !== null) {
+        c.title = v;
         changed();
-      },
-    });
+      }
+    }),
+    action('notebook-pen', T('编辑备注', 'Edit note'), async () => {
+      const v = await inputDialog(T('个人备注', 'Personal note'), c.note || '', { multi: true });
+      if (v !== null) {
+        c.note = v;
+        c.noteEditedAt = Date.now();
+        changed();
+      }
+    }),
+    action('message-square', T('问 AI', 'Ask AI'), () => cardHooks.chat(c)),
+  ];
+  if (c.kind === 'pin')
     tools.push(
-      color,
-      btn(T('复制图片', 'Copy image'), async () => folio.copyImage((await artwork(c)).toDataURL()))
+      action('pen-line', T('标注图表', 'Mark up figure'), () => editor(c, () => showCards(section))),
+      action('copy', T('复制图片', 'Copy image'), async () =>
+        folio.copyImage((await artwork(c)).toDataURL())
+      )
     );
-  } else
-    tools.push(
+  tools.push(
+    el('hr'),
+    field(
+      'scaling',
+      T('显示比例', 'Display size'),
       select(
-        [['', T('独立笔记', 'Independent note')], ...S.settings.tags.map((t) => [t.id, tagTitle(t)])],
-        c.tag || '',
+        [0.8, 1, 1.25, 1.5, 2].map((x) => [String(x), x * 100 + '%']),
+        String(c.scale || 1),
         (v) => {
-          c.tag = v;
-          c.recolored = true;
+          c.scale = Number(v);
           changed();
         }
       )
+    )
+  );
+  if (c.kind === 'pin')
+    tools.push(
+      field(
+        'palette',
+        T('便签底色', 'Card background'),
+        el('input', {
+          type: 'color',
+          value: c.color || '#ffffff',
+          onchange: (e) => {
+            c.color = e.target.value;
+            changed();
+          },
+        })
+      )
     );
-  popup(e.clientX, e.clientY, ...tools);
+  else
+    tools.push(
+      field(
+        'highlighter',
+        T('标签', 'Tag'),
+        select(
+          [['', T('独立笔记', 'Independent note')], ...S.settings.tags.map((t) => [t.id, tagTitle(t)])],
+          c.tag || '',
+          (v) => {
+            c.tag = v;
+            c.recolored = true;
+            changed();
+          }
+        )
+      )
+    );
+  tools.push(
+    el('hr'),
+    action('trash-2', T('删除', 'Delete'), () => removeCard(c), 'danger')
+  );
+  const bounds = e.currentTarget.getBoundingClientRect();
+  menu(
+    e.detail || e.type === 'contextmenu' ? e.clientX : bounds.left,
+    e.detail || e.type === 'contextmenu' ? e.clientY : bounds.bottom,
+    ...tools
+  );
 }
 export function showCards(kind = section, focus) {
   section = kind;
@@ -130,7 +157,7 @@ export function showCards(kind = section, focus) {
   host.replaceChildren();
   if (!S.doc) return;
   const paper = S.id;
-  const tools = el('div', { class: 'tools' });
+  const tools = el('div', { class: 'tools inspectorTools' });
   host.append(tools);
   if (kind === 'note') {
     const input = el('input', {
@@ -145,18 +172,23 @@ export function showCards(kind = section, focus) {
       i.focus();
     };
     tools.append(
-      input,
-      select(
-        [['', T('所有标签', 'All tags')], ...S.settings.tags.map((t) => [t.id, tagTitle(t)])],
-        filter,
-        (v) => {
-          filter = v;
-          showCards(kind);
-        }
+      el('label', { class: 'filterField' }, icon('search'), input),
+      el(
+        'label',
+        { class: 'filterField tagFilter' },
+        icon('list-filter'),
+        select(
+          [['', T('所有标签', 'All tags')], ...S.settings.tags.map((t) => [t.id, tagTitle(t)])],
+          filter,
+          (v) => {
+            filter = v;
+            showCards(kind);
+          }
+        )
       )
     );
   }
-  if (undo.length) tools.append(btn(T('撤销删除', 'Undo delete'), undelete));
+  if (undo.length) tools.append(action('undo-2', T('撤销删除', 'Undo delete'), undelete));
   const list = S.state.cards.filter(
     (c) =>
       c.kind === kind &&
@@ -232,15 +264,13 @@ export function showCards(kind = section, focus) {
     };
     const head = row();
     box.append(head);
-    if (c.kind === 'note') {
-      const dot = el('i', { class: 'dot' });
-      dot.style.background = tag?.color || '#999';
-      head.append(dot);
-    }
-    if (c.title) head.append(el('strong', { textContent: c.title }));
+    const kindIcon = icon(c.kind === 'pin' ? 'pin' : 'highlighter');
+    kindIcon.classList.add('cardKind');
+    if (tag) kindIcon.style.color = tag.color;
+    head.append(kindIcon, el('strong', { textContent: c.title || (tag ? tagTitle(tag) : name(c)) }));
     if (c.kind === 'pin') head.append(jump, iconButton('square-pen', T('编辑备注', 'Edit note'), edit));
-    else if (tag)
-      head.append(el('span', { class: 'tag', textContent: (c.title ? ' · ' : '') + tagTitle(tag) }));
+    if (c.kind === 'note' && c.title && tag)
+      head.append(el('span', { class: 'tag', textContent: tagTitle(tag) }));
     head.append(
       el('span', { class: 'space' }),
       iconButton('ellipsis', T('卡片操作', 'Card actions'), (e) => cardOptions(c, e)),
@@ -267,8 +297,15 @@ export function showCards(kind = section, focus) {
         img.style.width = (c.scale || 1) * 100 + '%';
         img.style.maxWidth = (c.scale || 1) > 1 ? 'none' : '100%';
         const wrap = el('div', { class: 'art' }, img);
+        const mark = action(
+          'pen-line',
+          T('标注图表', 'Mark up figure'),
+          () => editor(c, () => showCards(kind)),
+          'markFigure'
+        );
+        const preview = el('div', { class: 'figurePreview' }, wrap, mark);
         wrap.style.overflow = 'auto';
-        box.append(wrap);
+        box.append(preview);
         observer.observe(img);
       } else {
         const quote = el('p', { class: 'quote truncated', textContent: c.text });
@@ -284,6 +321,7 @@ export function showCards(kind = section, focus) {
           el(
             'small',
             {},
+            icon('notebook-pen'),
             T('我的思考', 'My thoughts'),
             el('time', {
               textContent: c.noteEditedAt

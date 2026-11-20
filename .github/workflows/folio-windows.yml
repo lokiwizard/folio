@@ -43,4 +43,4 @@ jobs:
           path: |
             dist/windows/FolioSetup-*-x64.exe
             dist/windows/Folio-*-win-x64.zip
-            dist/windows/Folio-Windows-reading.png
+            dist/windows/Folio-Windows-*.png

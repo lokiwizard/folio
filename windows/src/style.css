@@ -1027,3 +1027,682 @@ textarea {
   flex-direction: column;
   gap: 2px;
 }
+
+/* The reading sidebars share one compact control scale. */
+.action,
+.menuField,
+.filterField,
+.sessionPicker,
+.markJump,
+.bookmarkRow,
+.outlineItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.action .icon,
+.menuField .icon,
+.filterField .icon,
+.sessionPicker .icon {
+  width: 15px;
+  height: 15px;
+}
+#navigation,
+#inspector {
+  container-type: inline-size;
+}
+.tabs {
+  margin: 9px 10px 12px;
+  background: color-mix(in srgb, var(--text) 7%, var(--panel));
+  border-radius: 9px;
+}
+.tabs button {
+  font-size: 13px;
+  gap: 6px;
+  min-height: 27px;
+  border-radius: 7px;
+}
+.tabs button:hover:not(.active) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--paper) 46%, transparent);
+}
+.tabs button.active {
+  box-shadow: 0 1px 3px #12141a1d;
+}
+#navList,
+#rightContent {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 34%, transparent) transparent;
+}
+#navList[data-mode='pages'] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  align-items: start;
+  gap: 8px 4px;
+  padding: 0 9px 14px;
+}
+.thumbnail {
+  margin: 0;
+  gap: 7px;
+  padding: 7px 4px;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  font-size: 12px;
+}
+.thumbPaper {
+  width: min(100%, 128px);
+  aspect-ratio: 0.77;
+  display: grid;
+  place-items: center;
+}
+.thumbnail img {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  border: 0;
+  box-shadow: 0 1px 4px #0004;
+  border-radius: 2px;
+}
+.thumbnail:hover {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+.thumbnail.current {
+  background: var(--tint);
+  color: var(--accent);
+  font-weight: 600;
+}
+.thumbnail.current img {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.addMark {
+  justify-content: center;
+  width: 100%;
+  min-height: 31px;
+  margin: 1px 0 10px;
+  font-size: 13px;
+  font-weight: 550;
+  box-shadow: var(--shadow);
+}
+.bookmarkRow,
+.outlineItem {
+  border-radius: 7px;
+  gap: 2px;
+}
+.bookmarkRow:hover,
+.bookmarkRow:focus-within,
+.outlineItem:hover {
+  background: var(--field);
+}
+.markJump,
+.outlineJump {
+  border: 0;
+  background: transparent;
+  flex: 1;
+  text-align: left;
+}
+.markJump {
+  min-width: 0;
+  padding: 8px 5px;
+  gap: 9px;
+}
+.markJump > .icon {
+  color: var(--accent);
+  width: 16px;
+}
+.markJump span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.markJump strong,
+.outlineJump {
+  font-weight: 500;
+  font-size: 13px;
+}
+.markJump strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.markJump small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.bookmarkRow .glyph,
+.outlineItem .glyph {
+  width: 24px;
+  height: 27px;
+  color: var(--muted);
+}
+.bookmarkRow .glyph .icon,
+.outlineItem .icon {
+  width: 14px;
+  height: 14px;
+}
+.bookmarkRow .glyph {
+  opacity: 0;
+}
+.bookmarkRow:hover .glyph,
+.bookmarkRow:focus-within .glyph {
+  opacity: 1;
+}
+.outlineItem {
+  align-items: flex-start;
+}
+.outlineRoot {
+  background: var(--paper);
+  border: 1px solid color-mix(in srgb, var(--text) 7%, transparent);
+  border-radius: 8px;
+  margin-bottom: 5px;
+  padding-block: 3px;
+}
+.outlineJump {
+  padding: 5px 4px;
+  line-height: 1.45;
+}
+.outlineItem > .icon {
+  flex: 0 0 24px;
+  margin-top: 7px;
+  color: var(--muted);
+}
+.outlineItem.current {
+  color: var(--accent);
+  background: var(--tint);
+}
+.navEmpty,
+.emptyPane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  line-height: 1.55;
+}
+.navEmpty {
+  padding: 35px 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.navEmpty > .icon,
+.emptyPane > .icon {
+  width: 26px;
+  height: 26px;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.navEmpty strong,
+.emptyPane strong {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 600;
+}
+.emptyPane span {
+  font-size: 13px;
+}
+.inspectorTools {
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.filterField,
+.sessionPicker {
+  min-width: 0;
+  gap: 4px;
+  background: var(--field);
+  border-radius: 7px;
+  padding: 0 6px;
+  color: var(--muted);
+}
+.filterField {
+  flex: 1 1 120px;
+}
+.filterField input,
+.filterField select,
+.sessionPicker select {
+  border: 0;
+  background: transparent;
+  min-width: 0;
+  width: 100%;
+  color: var(--text);
+  font-size: 12px;
+  padding: 5px 2px;
+}
+.tools .filterField input[type='search'] {
+  min-width: 0;
+}
+.filterField:focus-within,
+.sessionPicker:focus-within {
+  outline: 2px solid var(--accent);
+}
+.filterField :focus-visible,
+.sessionPicker :focus-visible {
+  outline: none;
+}
+.filterField.tagFilter {
+  flex: 0 1 108px;
+}
+.card {
+  border-radius: 11px;
+  padding: 9px 10px;
+  margin-bottom: 9px;
+  box-shadow: 0 1px 2px #1518230a;
+}
+.card .row {
+  gap: 5px;
+  min-height: 25px;
+}
+.card .row .jump,
+.card .row .glyph {
+  flex: none;
+}
+.card .row strong {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+.card .cardKind {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+.card .glyph:hover,
+.card .jump:hover {
+  background: var(--field);
+  color: var(--text);
+}
+.figurePreview {
+  position: relative;
+}
+.card .art {
+  background: white;
+  border: 1px solid color-mix(in srgb, var(--text) 9%, transparent);
+  border-radius: 5px;
+  margin-top: 6px;
+}
+.card .markFigure {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--text);
+  font-size: 11px;
+  gap: 4px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px #0002;
+  opacity: 0;
+}
+.figurePreview:hover .markFigure,
+.figurePreview:focus-within .markFigure {
+  opacity: 1;
+}
+.card .jump {
+  font-size: 12px;
+  font-weight: 550;
+}
+.card .memoBox {
+  padding: 8px 9px;
+  margin-top: 7px;
+}
+.memoBox small {
+  justify-content: flex-start;
+}
+.memoBox small .icon {
+  width: 12px;
+  height: 12px;
+  color: #ae7744;
+}
+.memoBox time {
+  margin-left: auto;
+}
+.card .memo {
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+.menuList {
+  min-width: 196px;
+  gap: 1px;
+  padding: 5px;
+}
+.menuList .action,
+.menuList .menuField {
+  min-height: 29px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+.menuList .icon {
+  color: var(--muted);
+}
+.menuField > span {
+  flex: 1;
+}
+.menuField > input {
+  width: 35px;
+  height: 22px;
+  padding: 1px;
+}
+.menuField select {
+  max-width: 120px;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.menuList hr {
+  width: calc(100% - 12px);
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 3px auto;
+}
+.menuList .danger,
+.menuList .danger .icon {
+  color: #c1524a;
+}
+.sessionBar {
+  min-width: 0;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.sessionPicker {
+  flex: 1;
+}
+.sessionBar .glyph {
+  width: 26px;
+  height: 26px;
+}
+.sessionBar .icon {
+  width: 14px;
+  height: 14px;
+}
+.promptEdit {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  padding: 4px;
+}
+.thread > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  line-height: 1.45;
+  font-size: 13px;
+}
+.thread > button .icon {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+@container (max-width:205px) {
+  .tabs button span,
+  .tabs small {
+    display: none;
+  }
+  .tabs .icon {
+    width: 16px;
+    height: 16px;
+  }
+}
+@container (max-width:281px) {
+  .sessionBar .promptEdit {
+    font-size: 0;
+    gap: 0;
+    width: 26px;
+    justify-content: center;
+  }
+  .tagFilter {
+    max-width: 98px;
+  }
+}
+
+.markupSheet[open] {
+  width: min(920px, 94vw);
+  height: min(720px, 91vh);
+  max-height: 94vh;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  padding: 0;
+  overflow: hidden;
+  background: var(--paper);
+  border-radius: 15px;
+}
+.markupSheet .dialogHead {
+  margin: 0;
+  padding: 13px 18px 12px;
+  gap: 10px;
+}
+.markupTitleIcon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.markupHeading {
+  min-width: 0;
+}
+.markupHeading h2 {
+  font-size: 16px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.markupHeading small,
+.markupHint,
+.markupStatus {
+  color: var(--muted);
+  font-size: 12px;
+}
+.markupSheet .action {
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.markupSheet .action:hover,
+.markupSheet .glyph:hover {
+  background: var(--field);
+}
+.markupSheet .doneButton {
+  background: var(--accent);
+  color: white;
+  border: 0;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-radius: 7px;
+}
+:root[data-dark='true'] .doneButton {
+  color: #172136;
+}
+.markupTools,
+.markupProperties,
+.markupFooter,
+.markupSegments,
+.inkSwatches,
+.markupField,
+.customInk {
+  display: flex;
+  align-items: center;
+}
+.markupTools,
+.markupProperties {
+  gap: 7px;
+  padding: 5px 18px;
+}
+.markupTools {
+  padding-bottom: 8px;
+}
+.markupSegments {
+  gap: 2px;
+  padding: 2px;
+  background: var(--field);
+  border-radius: 8px;
+}
+.markupSegments .glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: auto;
+  padding: 4px 9px;
+  height: 29px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.markupSegments .icon {
+  width: 15px;
+  height: 15px;
+}
+.markupSegments .glyph.active {
+  background: var(--paper);
+  color: var(--accent);
+  box-shadow: 0 1px 3px #0002;
+}
+.railDivider {
+  height: 17px;
+  width: 1px;
+  background: var(--line);
+  margin: 0 3px;
+}
+.markupProperties {
+  height: 39px;
+  border-block: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 48%, var(--paper));
+}
+.inkSwatches {
+  gap: 4px;
+  margin-right: 5px;
+}
+.inkSwatches .swatch {
+  background: var(--ink);
+  width: 19px;
+  height: 19px;
+  margin: 2px;
+  border-radius: 50%;
+  padding: 3px;
+  color: white;
+}
+.inkSwatches .swatch:hover {
+  background: var(--ink);
+  outline: 2px solid var(--line);
+}
+.swatch .icon {
+  width: 13px;
+  height: 13px;
+  visibility: hidden;
+}
+.swatch[aria-pressed='true'] {
+  outline: 1.5px solid var(--ink);
+  outline-offset: 2px;
+}
+.swatch[aria-pressed='true'] .icon {
+  visibility: visible;
+}
+.customInk {
+  position: relative;
+  justify-content: center;
+  width: 23px;
+  height: 24px;
+  border-radius: 5px;
+  margin-left: 3px;
+  color: var(--muted);
+}
+.customInk input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.markupField {
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.markupField input,
+.markupProperties select {
+  font-size: 12px;
+  padding: 2px 4px;
+  height: 24px;
+}
+.markupField input {
+  width: 50px;
+}
+.markupStage {
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  background: color-mix(in srgb, var(--panel) 84%, var(--line));
+  outline: 0;
+  min-height: 0;
+}
+.markupPaper {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  object-fit: fill;
+  box-shadow:
+    0 0 0 1px #0001,
+    0 3px 12px #0002;
+  pointer-events: none;
+  user-select: none;
+}
+.markupStage .canvas-container {
+  position: absolute !important;
+  inset: 0;
+}
+.markupStage.canPan canvas {
+  cursor: grab !important;
+}
+.markupStage.panning canvas {
+  cursor: grabbing !important;
+}
+.shapeLabelInput {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  resize: none;
+  text-align: center;
+  align-content: center;
+  font-family: 'Segoe UI', sans-serif;
+  line-height: 1.2;
+  background: #ffffffed;
+  border: 1px solid #397bd6;
+  border-radius: 0;
+  padding: 3px;
+}
+.markupFooter {
+  gap: 4px;
+  border-top: 1px solid var(--line);
+  padding: 5px 13px;
+  background: var(--paper);
+  flex-wrap: nowrap;
+}
+.markupFooter > .icon {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+  margin-right: 3px;
+}
+.markupFooter output {
+  text-align: center;
+  min-width: 40px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.markupFooter .glyph {
+  width: 26px;
+}

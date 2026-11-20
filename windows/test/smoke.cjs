@@ -93,7 +93,7 @@ async function run() {
     await win.waitForFunction(() => document.querySelector('.card img')?.naturalWidth > 0);
     await pin.click();
     await button('矩形').click();
-    const draw = win.locator('.upper-canvas');
+    const draw = win.locator('.markupPaper');
     const surface = await draw.boundingBox();
     await win.mouse.move(surface.x + surface.width * 0.15, surface.y + surface.height * 0.2);
     await win.mouse.down();
@@ -103,6 +103,77 @@ async function run() {
     await win.mouse.up();
     await readState((s) =>
       assert.equal(s.cards.find((c) => c.kind === 'pin').drawing.objects.length, 1)
+    );
+    const objs = () => state().then((s) => s.cards.find((c) => c.kind === 'pin').drawing.objects);
+    const gesture = async (name, from, to, shift = false) => {
+      await button(name).click();
+      await win.mouse.move(surface.x + surface.width * from[0], surface.y + surface.height * from[1]);
+      if (shift) await win.keyboard.down('Shift');
+      await win.mouse.down();
+      await win.mouse.move(surface.x + surface.width * to[0], surface.y + surface.height * to[1], {
+        steps: 8,
+      });
+      await win.mouse.up();
+      if (shift) await win.keyboard.up('Shift');
+    };
+    await win.locator('.markupField input[title="线宽"]').fill('9');
+    await win.locator('.markupField input[title="线宽"]').press('Enter');
+    await win.locator('.markupProperties select').selectOption('dash');
+    await button('蓝色').click();
+    await button('形状文字').click();
+    await win.locator('.shapeLabelInput').fill('模块 A');
+    await win.locator('.shapeLabelInput').press('Control+Enter');
+    await eventually(async () => {
+      const [rect] = await objs();
+      assert.equal(rect.label, '模块 A');
+      assert.equal(rect.strokeWidth, 9);
+      assert.equal(rect.stroke, '#3579df');
+      assert.deepEqual(rect.strokeDashArray, [27, 18]);
+    });
+    await gesture('椭圆', [0.2, 0.2], [0.31, 0.34], true);
+    await eventually(async () => {
+      const o = (await objs()).at(-1);
+      assert.equal(o.type, 'FolioEllipse');
+      assert.ok(Math.abs(o.rx - o.ry) < 0.01);
+    });
+    await gesture('直线', [0.1, 0.8], [0.38, 0.75]);
+    await gesture('箭头', [0.46, 0.76], [0.67, 0.78]);
+    await eventually(async () => assert.equal((await objs()).at(-1).arrow, true));
+    const endX = surface.x + surface.width * 0.67,
+      endY = surface.y + surface.height * 0.78;
+    const arrowBefore = (await objs()).at(-1);
+    await win.mouse.move(endX, endY);
+    await win.mouse.down();
+    await win.mouse.move(endX + 18, endY - 21, { steps: 6 });
+    await win.mouse.up();
+    await eventually(async () => {
+      const changed = (await objs()).at(-1);
+      assert.deepEqual(changed.points[0], arrowBefore.points[0]);
+      assert.notDeepEqual(changed.points[1], arrowBefore.points[1]);
+    });
+    await gesture('画笔', [0.45, 0.16], [0.76, 0.24]);
+    await eventually(async () => assert.equal((await objs()).length, 5));
+    await button('撤销').click();
+    await eventually(async () => assert.equal((await objs()).length, 4));
+    await button('重做').click();
+    await eventually(async () => assert.equal((await objs()).length, 5));
+    await button('放大标注').click();
+    const enlarged = await draw.boundingBox();
+    assert.ok(enlarged.width > surface.width * 1.2);
+    await win.locator('.markupStage').focus();
+    await win.keyboard.down('Space');
+    await win.mouse.move(surface.x + surface.width * 0.5, surface.y + surface.height * 0.5);
+    await win.mouse.down();
+    await win.mouse.move(surface.x + surface.width * 0.5 + 30, surface.y + surface.height * 0.5 + 20, {
+      steps: 4,
+    });
+    await win.mouse.up();
+    await win.keyboard.up('Space');
+    const moved = await draw.boundingBox();
+    assert.ok(Math.abs(moved.x - enlarged.x - 30) < 2);
+    await button('全图').click();
+    console.log(
+      'PASS all drawing tools, constrained shape, independent style edits, inline shape labels, undo/redo, zoom and pan'
     );
     await button('文本框').click();
     await win.mouse.move(surface.x + surface.width * 0.25, surface.y + surface.height * 0.32);
@@ -120,7 +191,13 @@ async function run() {
       assert.equal(text.text, 'Figure A');
       assert.ok(text.minimumBoxHeight > 12);
     });
-    await win.locator('dialog .dialogHead button').click();
+    if (process.env.FOLIO_SCREENSHOT_DIR) {
+      await fs.mkdir(process.env.FOLIO_SCREENSHOT_DIR, { recursive: true });
+      await win.screenshot({
+        path: path.join(process.env.FOLIO_SCREENSHOT_DIR, 'Folio-Windows-markup.png'),
+      });
+    }
+    await button('完成').click();
     await win.waitForSelector('dialog', { state: 'detached' });
     await win.locator('#display').click();
     await button('旋转').click();
@@ -134,6 +211,24 @@ async function run() {
     await win.locator('dialog input').fill('Figure A');
     await button('确定').click();
     await readState((s) => assert.equal(s.bookmarks[0].name, 'Figure A'));
+    const markRow = win.locator('.bookmarkRow');
+    await markRow.hover();
+    await markRow.getByRole('button', { name: '重命名' }).click();
+    await win.locator('dialog input').fill('图表 A');
+    await button('确定').click();
+    await readState((s) => assert.equal(s.bookmarks[0].name, '图表 A'));
+    await button('页面').click();
+    await win.locator('.thumbnail img').first().waitFor();
+    await button('目录').click();
+    await win.locator('.navEmpty,.outlineItem').first().waitFor();
+    await button('书签').click();
+    // Reopen old-orientation artwork, close without edits and check that the stored scene stays identical.
+    const prior = JSON.stringify((await state()).cards.find((c) => c.kind === 'pin').drawing);
+    await win.locator('.card img').click();
+    await button('完成').click();
+    await readState((s) =>
+      assert.equal(JSON.stringify(s.cards.find((c) => c.kind === 'pin').drawing), prior)
+    );
     await win.keyboard.press('Control+f');
     await win.locator('#query').fill('Alpha');
     await win.waitForFunction(() => document.querySelector('#matches').textContent.includes('/ 1'));
@@ -309,6 +404,14 @@ async function run() {
       'PASS AES-256 unlock, ordered unencrypted export, source rotation and original PDF annotations'
     );
     assert.deepEqual(await fs.readFile(pdf), original);
+    if (process.env.FOLIO_SCREENSHOT_DIR)
+      await require('./sidebar-preview.cjs')({
+        app,
+        win,
+        dir,
+        root,
+        output: process.env.FOLIO_SCREENSHOT_DIR,
+      });
     assert.deepEqual(errors, []);
     console.log('PASS original file is byte-identical; no renderer errors');
   } catch (e) {

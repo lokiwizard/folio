@@ -8,23 +8,40 @@ import {
   PencilBrush,
   Point,
   controlsUtils,
+  util,
   FabricObject,
   classRegistry,
 } from '../assets/fabric.mjs';
-import { S, T, el, btn, select, row, modal, inputDialog, save, guard } from './ui.mjs';
+import { S, T, el, btn, action, icon, iconButton, row, modal, pageLabel, save, guard } from './ui.mjs';
 import { renderCrop } from './reader.mjs';
 FabricObject.customProperties = ['label', 'labelSize', 'arrow', 'minimumBoxHeight'];
 function shapeLabel(ctx, o) {
   if (!o.label) return;
   ctx.save();
   ctx.fillStyle = o.stroke || '#161616';
-  ctx.font = (o.labelSize || 24) + 'px sans-serif';
+  const font = o.labelSize || 24;
+  ctx.font = font + 'px "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const lines = o.label.split('\n');
-  lines.forEach((s, i) =>
-    ctx.fillText(s, 0, (i - (lines.length - 1) / 2) * (o.labelSize || 24), Math.max(1, o.width - 8))
-  );
+  const inset = o instanceof Ellipse ? 0.72 : 0.94;
+  const w = Math.max(1, o.width * inset - 4),
+    h = Math.max(1, o.height * inset);
+  const lines = [];
+  for (const paragraph of o.label.split('\n')) {
+    let line = '';
+    for (const ch of paragraph) {
+      if (line && ctx.measureText(line + ch).width > w) {
+        lines.push(line);
+        line = '';
+      }
+      line += ch;
+    }
+    lines.push(line);
+  }
+  ctx.beginPath();
+  ctx.rect(-w / 2, -h / 2, w, h);
+  ctx.clip();
+  lines.forEach((line, i) => ctx.fillText(line, 0, (i - (lines.length - 1) / 2) * font * 1.2));
   ctx.restore();
 }
 class LabelRect extends Rect {
@@ -121,302 +138,682 @@ export async function artwork(card, max = 1800) {
   return out;
 }
 export async function editor(card, refresh) {
-  const base = await rawPin(card, 1800, card.rotation || 0),
-    size = card.drawingSize || dimensions(base);
-  const tools = el('div', { class: 'tools' }),
-    props = el('div', { class: 'tools' }),
-    stage = el('div', { class: 'editorStage' }),
-    surface = el('canvas');
-  stage.append(surface);
-  const d = modal(card.title || T('编辑图表便签', 'Edit figure'), tools, props, stage);
-  const scene = new Canvas(surface, {
-    ...size,
-    enableRetinaScaling: false,
-    preserveObjectStacking: true,
-    selection: true,
+  const rotation = S.state.rotations[card.anchors[0].page] || 0;
+  const base = await rawPin(card, 1800, rotation);
+  const oldSize = card.drawingSize || dimensions(base);
+  const angle = card.drawing ? (rotation - (card.rotation || 0) + 360) % 360 : 0;
+  const size = angle % 180 ? { width: oldSize.height, height: oldSize.width } : oldSize;
+  const surface = el('canvas'),
+    paper = el('img', { class: 'markupPaper', src: base.toDataURL(), alt: '', draggable: false });
+  const stage = el('div', { class: 'markupStage', tabIndex: 0 }, paper, surface);
+  const toolStrip = el('div', { class: 'markupTools' }),
+    properties = el('div', { class: 'markupProperties' });
+  const foot = el('footer', { class: 'markupFooter' });
+  const d = modal(card.title || T('图表便签', 'Pinned figure'), toolStrip, properties, stage, foot);
+  d.classList.add('markupSheet');
+  const done = btn(
+    T('完成', 'Done'),
+    () => {
+      endText();
+      d.close();
+    },
+    'doneButton'
+  );
+  const copy = action('copy', T('复制图片', 'Copy image'), async () => {
+    endText();
+    await folio.copyImage((await artwork(card)).toDataURL());
   });
-  scene.wrapperEl.style.backgroundImage = 'url(' + base.toDataURL() + ')';
-  scene.wrapperEl.style.backgroundSize = '100% 100%';
+  const heading = d.querySelector('h2');
+  d.querySelector('.dialogHead').replaceChildren(
+    el('div', { class: 'markupTitleIcon' }, icon('pen-line')),
+    el(
+      'div',
+      { class: 'markupHeading' },
+      heading,
+      el('small', { textContent: pageLabel(card.anchors[0].page) })
+    ),
+    el('span', { class: 'space' }),
+    copy,
+    done
+  );
+  const scene = new Canvas(surface, {
+    preserveObjectStacking: true,
+    selection: false,
+    enablePointerEvents: true,
+    targetFindTolerance: 5,
+    selectionColor: 'rgba(70,128,225,.08)',
+    selectionBorderColor: '#6096e7',
+  });
   let tool = 'select',
-    draft,
     start,
-    history = [],
+    draft,
+    labelEditor,
+    panning,
+    spaceDown = false,
+    restoring = false;
+  let scale = 1,
+    tx = 0,
+    ty = 0,
+    fitted = true;
+  const history = [],
     future = [],
-    restoring = false,
-    scale = 1,
-    activeColor = '#d14135',
-    width = 4,
-    dash = false,
-    font = 26;
-  const buttons = new Map(),
-    undo = btn(T('撤销', 'Undo'), () => restore(history, future)),
-    redo = btn(T('重做', 'Redo'), () => restore(future, history));
-  function data() {
-    return scene.toJSON();
+    buttons = new Map();
+  const defaults = { color: '#d74b42', width: 4, dash: false, font: 26 };
+  const names = [
+    ['select', 'mouse-pointer-2', T('选择', 'Select'), 'V'],
+    ['pen', 'pencil', T('画笔', 'Pen'), 'P'],
+    ['line', 'slash', T('直线', 'Line'), 'L'],
+    ['arrow', 'move-up-right', T('箭头', 'Arrow'), 'A'],
+    ['rect', 'square', T('矩形', 'Rectangle'), 'R'],
+    ['ellipse', 'circle', T('椭圆', 'Ellipse'), 'O'],
+    ['text', 'type', T('文本框', 'Text'), 'T'],
+  ];
+  const toolsGroup = el('div', { class: 'markupSegments' });
+  for (const [key, symbol, name, shortcut] of names) {
+    const b = iconButton(symbol, name, () => setTool(key));
+    b.title = name + ' (' + shortcut + ')';
+    b.append(el('span', { textContent: name }));
+    toolsGroup.append(b);
+    buttons.set(key, b);
+  }
+  const undo = iconButton('undo-2', T('撤销', 'Undo'), () => restore(history, future));
+  const redo = iconButton('redo-2', T('重做', 'Redo'), () => restore(future, history));
+  toolStrip.append(toolsGroup, el('span', { class: 'space' }), undo, redo);
+  const colorNames = [
+    [T('朱红', 'Red'), '#d74b42'],
+    [T('琥珀', 'Amber'), '#d19319'],
+    [T('蓝色', 'Blue'), '#3579df'],
+    [T('紫色', 'Violet'), '#8b60bb'],
+    [T('墨黑', 'Ink'), '#303135'],
+  ];
+  const swatches = el('div', { class: 'inkSwatches' });
+  for (const [name, value] of colorNames) {
+    const b = iconButton('check', name, () => change('color', value));
+    b.classList.add('swatch');
+    b.style.setProperty('--ink', value);
+    b.dataset.color = value;
+    swatches.append(b);
+  }
+  const custom = el('input', {
+    type: 'color',
+    title: T('自定义颜色', 'Custom color'),
+    onchange: (e) => change('color', e.target.value),
+  });
+  swatches.append(el('label', { class: 'customInk', title: custom.title }, icon('palette'), custom));
+  const number = (name, min, max, prop) => {
+    const input = el('input', {
+      type: 'number',
+      min,
+      max,
+      title: name,
+      onchange: () => {
+        if (!Number.isFinite(input.valueAsNumber)) return sync();
+        change(prop, Math.max(min, Math.min(max, input.valueAsNumber)));
+      },
+    });
+    return el('label', { class: 'markupField' }, el('span', { textContent: name }), input);
+  };
+  const lineWidth = number(T('线宽', 'Width'), 1, 32, 'width'),
+    fontSize = number(T('字号', 'Type size'), 8, 160, 'font');
+  const dash = el(
+    'select',
+    { title: T('线型', 'Line style'), onchange: (e) => change('dash', e.target.value === 'dash') },
+    el('option', { value: 'solid', textContent: T('实线', 'Solid') }),
+    el('option', { value: 'dash', textContent: T('虚线', 'Dashed') })
+  );
+  const labelButton = action('text-cursor-input', T('形状文字', 'Shape text'), () =>
+    editLabel(scene.getActiveObject())
+  );
+  const remove = iconButton('trash-2', T('删除标注', 'Delete markup'), () => {
+    const objects = scene.getActiveObjects();
+    if (!objects.length) return;
+    scene.discardActiveObject();
+    scene.remove(...objects);
+    scene.requestRenderAll();
+    record();
+    sync();
+  });
+  const hint = el('span', { class: 'markupHint' });
+  properties.append(
+    hint,
+    swatches,
+    lineWidth,
+    dash,
+    fontSize,
+    labelButton,
+    el('span', { class: 'space' }),
+    remove
+  );
+  const zoomLabel = el('output'),
+    status = el('span', { class: 'markupStatus' });
+  foot.append(
+    icon('hand'),
+    status,
+    el('span', { class: 'space' }),
+    iconButton('minus', T('缩小标注', 'Zoom out of figure'), () => zoom(scale / 1.25)),
+    zoomLabel,
+    iconButton('plus', T('放大标注', 'Zoom into figure'), () => zoom(scale * 1.25)),
+    el('span', { class: 'railDivider' }),
+    action('scan', T('全图', 'Fit'), fit)
+  );
+  function prepare(o) {
+    o.set({
+      cornerStyle: 'circle',
+      cornerSize: 9,
+      touchCornerSize: 22,
+      transparentCorners: false,
+      cornerColor: '#fff',
+      cornerStrokeColor: '#397bd6',
+      borderColor: '#397bd6',
+      borderScaleFactor: 1.3,
+    });
+    if (o instanceof ArrowLine) {
+      o.controls = controlsUtils.createPolyControls(o);
+      o.hasBorders = false;
+      o.perPixelTargetFind = true;
+    }
+    if (o instanceof Textbox) o.hiddenTextareaContainer = stage;
+  }
+  if (card.drawing) {
+    await scene.loadFromJSON(card.drawing);
+    const matrix = {
+      90: [0, 1, -1, 0, oldSize.height, 0],
+      180: [-1, 0, 0, -1, oldSize.width, oldSize.height],
+      270: [0, -1, 1, 0, 0, oldSize.width],
+    }[angle];
+    for (const o of scene.getObjects()) {
+      if (matrix) util.addTransformToObject(o, matrix);
+      prepare(o);
+      o.setCoords();
+    }
+  }
+  let last = scene.toJSON();
+  function persist(json) {
+    last = json;
+    card.drawing = json;
+    card.drawingSize = size;
+    card.rotation = rotation;
+    save();
+    undo.disabled = !history.length;
+    redo.disabled = !future.length;
   }
   function record() {
     if (restoring || draft) return;
-    const json = data();
-    if (JSON.stringify(json) === JSON.stringify(card.drawing)) return;
-    history.push(card.drawing || { objects: [] });
+    const json = scene.toJSON();
+    if (JSON.stringify(json) === JSON.stringify(last)) return;
+    history.push(last);
     if (history.length > 80) history.shift();
-    future = [];
-    card.drawing = json;
-    card.drawingSize = size;
-    save();
+    future.length = 0;
+    persist(json);
   }
   async function restore(from, to) {
+    endText();
     if (!from.length || restoring) return;
     restoring = true;
     try {
-      to.push(data());
-      card.drawing = from.pop();
-      await scene.loadFromJSON(card.drawing);
-      setupObjects();
-      scene.requestRenderAll();
-      save();
+      scene.discardActiveObject();
+      const next = from[from.length - 1];
+      await scene.loadFromJSON(next);
+      scene.getObjects().forEach(prepare);
+      to.push(last);
+      from.pop();
+      persist(next);
+      setTool('select');
+      view();
     } finally {
       restoring = false;
     }
   }
-  function setupObjects() {
-    for (const o of scene.getObjects()) {
-      if (o instanceof ArrowLine) o.controls = controlsUtils.createPolyControls(o);
-      if (o instanceof Textbox) o.hiddenTextareaContainer = stage;
-    }
+  function view() {
+    scene.setViewportTransform([scale, 0, 0, scale, tx, ty]);
+    Object.assign(paper.style, {
+      width: size.width + 'px',
+      height: size.height + 'px',
+      transform: 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')',
+    });
+    zoomLabel.value = Math.round((scale / fitScale()) * 100) + '%';
+    scene.requestRenderAll();
+    positionLabel();
   }
-  if (card.drawing) {
-    await scene.loadFromJSON(card.drawing);
-    setupObjects();
-  }
-  function zoom(value) {
-    scale = Math.min(4, Math.max(0.1, value));
-    scene.wrapperEl.style.zoom = String(scale);
-  }
+  const fitScale = () =>
+    Math.max(
+      0.01,
+      Math.min((stage.clientWidth - 40) / size.width, (stage.clientHeight - 40) / size.height)
+    );
   function fit() {
-    zoom(Math.min((innerWidth * 0.8) / size.width, (innerHeight * 0.6) / size.height, 1));
+    const w = stage.clientWidth,
+      h = stage.clientHeight;
+    scale = fitScale();
+    tx = (w - size.width * scale) / 2;
+    ty = (h - size.height * scale) / 2;
+    fitted = true;
+    view();
   }
-  function setTool(v) {
-    tool = v;
-    scene.isDrawingMode = v === 'pen';
-    scene.selection = v === 'select';
-    scene.skipTargetFind = v !== 'select';
-    scene.defaultCursor = v === 'select' ? 'default' : 'crosshair';
-    for (const [key, b] of buttons) b.classList.toggle('active', key === v);
-    if (scene.isDrawingMode) {
-      const brush = new PencilBrush(scene);
-      brush.color = activeColor;
-      brush.width = width;
-      brush.strokeDashArray = dash ? [width * 3, width * 2] : null;
-      scene.freeDrawingBrush = brush;
+  function zoom(value, x = stage.clientWidth / 2, y = stage.clientHeight / 2) {
+    const fitValue = fitScale(),
+      next = Math.min(fitValue * 8, Math.max(fitValue * 0.25, value)),
+      factor = next / scale;
+    tx = x - (x - tx) * factor;
+    ty = y - (y - ty) * factor;
+    scale = next;
+    fitted = false;
+    view();
+  }
+  const resize = new ResizeObserver(() => {
+    const w = stage.clientWidth,
+      h = stage.clientHeight;
+    if (!w || !h || !d.open) return;
+    const dx = (w - scene.width) / 2,
+      dy = (h - scene.height) / 2;
+    scene.setDimensions({ width: w, height: h });
+    if (fitted) fit();
+    else {
+      tx += dx;
+      ty += dy;
+      view();
     }
-  }
-  const names = [
-    ['select', T('选择', 'Select')],
-    ['pen', T('画笔', 'Pen')],
-    ['line', T('直线', 'Line')],
-    ['arrow', T('箭头', 'Arrow')],
-    ['rect', T('矩形', 'Rectangle')],
-    ['ellipse', T('椭圆', 'Ellipse')],
-    ['text', T('文本框', 'Text')],
-  ];
-  for (const [key, name] of names) {
-    const b = btn(name, () => setTool(key));
-    buttons.set(key, b);
-    tools.append(b);
-  }
-  function styleSelected() {
-    const o = scene.getActiveObject();
-    if (o) {
-      if (o instanceof Textbox) o.set({ fill: activeColor, fontSize: font });
-      else
-        o.set({
-          stroke: activeColor,
-          strokeWidth: width,
-          strokeDashArray: dash ? [width * 3, width * 2] : null,
-          labelSize: font,
-        });
-      o.set('dirty', true);
-      scene.requestRenderAll();
-      record();
-    }
-    if (tool === 'pen') setTool(tool);
-  }
-  const color = el('input', {
-    type: 'color',
-    value: activeColor,
-    oninput: (e) => {
-      activeColor = e.target.value;
-      styleSelected();
-    },
   });
-  props.append(
-    color,
-    T('线宽', 'Width'),
-    el('input', {
-      type: 'number',
-      min: 1,
-      max: 32,
-      value: width,
-      onchange: (e) => {
-        width = Math.max(1, Math.min(32, +e.target.value));
-        styleSelected();
-      },
-    }),
-    select(
-      [
-        ['solid', T('实线', 'Solid')],
-        ['dash', T('虚线', 'Dashed')],
-      ],
-      'solid',
-      (v) => {
-        dash = v === 'dash';
-        styleSelected();
-      }
-    ),
-    T('字号', 'Font'),
-    el('input', {
-      type: 'number',
-      min: 8,
-      max: 160,
-      value: font,
-      onchange: (e) => {
-        font = Math.max(8, Math.min(160, +e.target.value));
-        styleSelected();
-      },
-    })
-  );
-  const remove = () => {
+  resize.observe(stage);
+  function brush() {
+    if (!scene.isDrawingMode) return;
+    const b = new PencilBrush(scene);
+    b.color = defaults.color;
+    b.width = defaults.width;
+    b.strokeDashArray = defaults.dash ? [b.width * 3, b.width * 2] : null;
+    scene.freeDrawingBrush = b;
+  }
+  function setTool(value) {
+    endText();
+    if (start) {
+      if (draft) scene.remove(draft);
+      start = null;
+      draft = null;
+    }
+    if (value !== 'select') scene.discardActiveObject();
+    tool = value;
+    scene.isDrawingMode = tool === 'pen';
+    scene.skipTargetFind = tool !== 'select';
+    scene.defaultCursor = tool === 'select' ? 'default' : 'crosshair';
+    for (const [k, b] of buttons) {
+      b.classList.toggle('active', k === tool);
+      b.setAttribute('aria-pressed', String(k === tool));
+    }
+    brush();
+    sync();
+    scene.requestRenderAll();
+    stage.focus({ preventScroll: true });
+  }
+  const isLabel = (o) => o instanceof LabelRect || o instanceof LabelEllipse;
+  function sync() {
+    const o = scene.getActiveObject(),
+      text = o instanceof Textbox || tool === 'text',
+      label = isLabel(o) || ['rect', 'ellipse'].includes(tool);
+    const idle = tool === 'select' && !o;
+    const color = o ? (o instanceof Textbox ? o.fill : o.stroke) : defaults.color;
+    swatches.hidden = idle;
+    lineWidth.hidden = idle || text;
+    dash.hidden = idle || text;
+    fontSize.hidden = idle || (!text && !label);
+    labelButton.hidden = !isLabel(o);
+    remove.hidden = !o;
+    hint.hidden = !idle;
+    hint.textContent = T(
+      '选择标注可调整样式，或从上方选择绘图工具。',
+      'Select a mark to change its style, or choose a drawing tool.'
+    );
+    for (const b of swatches.querySelectorAll('button'))
+      b.setAttribute('aria-pressed', String(b.dataset.color === color));
+    custom.value = /^#[0-9a-f]{6}$/i.test(color) ? color : defaults.color;
+    lineWidth.lastChild.value = o?.strokeWidth ?? defaults.width;
+    fontSize.lastChild.value = (o instanceof Textbox ? o.fontSize : o?.labelSize) ?? defaults.font;
+    dash.value = (o ? o.strokeDashArray?.length : defaults.dash) ? 'dash' : 'solid';
+    undo.disabled = !history.length;
+    redo.disabled = !future.length;
+    status.textContent =
+      tool === 'select'
+        ? T('空格拖动平移 · Ctrl + 滚轮缩放', 'Space + drag to pan · Ctrl + scroll to zoom')
+        : tool === 'text'
+          ? T('单击输入文字，或拖出文本框', 'Click to type, or drag to size a text box')
+          : tool === 'pen'
+            ? T('按住并拖动绘制笔迹', 'Drag to draw a stroke')
+            : ['rect', 'ellipse'].includes(tool)
+              ? T('拖动绘制 · 按住 Shift 保持等宽高', 'Drag to draw · Hold Shift for equal sides')
+              : T('拖动绘制 · 按住 Shift 锁定角度', 'Drag to draw · Hold Shift to snap the angle');
+    if (o instanceof ArrowLine)
+      status.textContent = T(
+        '拖动端点调整方向和长度',
+        'Drag an endpoint to change direction and length'
+      );
+    else if (isLabel(o))
+      status.textContent = T(
+        '拖动手柄调整大小 · 双击输入文字',
+        'Drag a handle to resize · Double-click to add text'
+      );
+    else if (o instanceof Textbox)
+      status.textContent = T(
+        '拖动手柄调整文本框 · 双击编辑文字',
+        'Drag handles to resize the box · Double-click to edit text'
+      );
+    else if (o)
+      status.textContent = T(
+        '拖动笔迹移动 · 拖动手柄缩放',
+        'Drag the stroke to move it · Drag handles to resize'
+      );
+  }
+  function change(key, value) {
     const o = scene.getActiveObject();
-    if (o && !o.isEditing) {
-      scene.remove(...scene.getActiveObjects());
-      scene.discardActiveObject();
-      scene.requestRenderAll();
+    if (!o) {
+      defaults[key] = value;
+      brush();
+    } else {
+      if (key === 'color') o.set(o instanceof Textbox ? 'fill' : 'stroke', value);
+      if (key === 'font') o.set(o instanceof Textbox ? 'fontSize' : 'labelSize', value);
+      if (key === 'width') o.set('strokeWidth', value);
+      if (key === 'dash' || (key === 'width' && o.strokeDashArray))
+        o.set(
+          'strokeDashArray',
+          (key === 'dash' ? value : true) ? [o.strokeWidth * 3, o.strokeWidth * 2] : null
+        );
+      o.set('dirty', true);
+      o.setCoords();
       record();
     }
-  };
-  tools.append(
-    undo,
-    redo,
-    btn(T('删除', 'Delete'), remove),
-    btn('−', () => zoom(scale / 1.25)),
-    btn('+', () => zoom(scale * 1.25)),
-    btn(T('全图', 'Fit'), fit),
-    btn(T('复制图片', 'Copy image'), async () => folio.copyImage((await artwork(card)).toDataURL()))
-  );
-  function shape(p) {
-    const dx = p.x - start.x,
-      dy = p.y - start.y,
-      w = Math.max(2, Math.abs(dx)),
-      h = Math.max(2, Math.abs(dy));
-    const style = {
-      left: Math.min(start.x, p.x),
-      top: Math.min(start.y, p.y),
-      originX: 'left',
-      originY: 'top',
-      fill: 'transparent',
-      stroke: activeColor,
-      strokeWidth: width,
-      strokeDashArray: dash ? [width * 3, width * 2] : null,
-      strokeUniform: true,
-    };
-    if (tool === 'rect') return new LabelRect({ ...style, width: w, height: h });
-    if (tool === 'ellipse') return new LabelEllipse({ ...style, rx: w / 2, ry: h / 2 });
-    if (tool === 'text')
-      return new NoteTextBox('', {
-        ...style,
-        fill: activeColor,
-        stroke: null,
-        width: Math.max(50, w),
-        minimumBoxHeight: h,
-        hiddenTextareaContainer: stage,
-        fontSize: font,
-        editable: true,
-      });
-    const pts = [new Point(start.x, start.y), new Point(p.x, p.y)];
-    return new ArrowLine(pts, {
-      fill: null,
-      stroke: activeColor,
-      strokeWidth: width,
-      strokeDashArray: style.strokeDashArray,
-      arrow: tool === 'arrow',
+    sync();
+    scene.requestRenderAll();
+  }
+  function positionLabel() {
+    if (!labelEditor) return;
+    const { o, input } = labelEditor;
+    const m = util.multiplyTransformMatrices(scene.viewportTransform, o.calcTransformMatrix());
+    Object.assign(input.style, {
+      width: o.width + 'px',
+      height: o.height + 'px',
+      fontSize: (o.labelSize || 24) + 'px',
+      color: o.stroke,
+      transform: 'matrix(' + m.join(',') + ') translate(-50%,-50%)',
     });
   }
-  scene.on('mouse:down', ({ scenePoint }) => {
-    if (['select', 'pen'].includes(tool)) return;
-    start = scenePoint;
-    draft = shape(start);
-    scene.add(draft);
-  });
-  scene.on('mouse:move', ({ scenePoint }) => {
-    if (!draft) return;
-    scene.remove(draft);
-    draft = shape(scenePoint);
-    scene.add(draft);
+  function editLabel(o) {
+    if (!isLabel(o) || labelEditor) return;
+    const input = el('textarea', {
+      class: 'shapeLabelInput',
+      value: o.label || '',
+      title: T('形状文字', 'Shape text'),
+    });
+    labelEditor = { input, o };
+    stage.append(input);
+    positionLabel();
+    input.focus();
+    input.select();
+    input.onblur = () => finishLabel(true);
+    input.onkeydown = (e) => {
+      if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
+        e.preventDefault();
+        e.stopPropagation();
+        finishLabel(e.key !== 'Escape');
+        stage.focus();
+      }
+    };
+  }
+  function finishLabel(commit) {
+    if (!labelEditor) return;
+    const { o, input } = labelEditor;
+    labelEditor = null;
+    input.onblur = null;
+    if (commit) o.set({ label: input.value, dirty: true });
+    input.remove();
     scene.requestRenderAll();
+    if (commit) record();
+  }
+  function endText() {
+    finishLabel(true);
+    const active = scene.getActiveObject();
+    if (active?.isEditing) active.exitEditing();
+  }
+  function inside(p) {
+    return p.x >= 0 && p.y >= 0 && p.x <= size.width && p.y <= size.height;
+  }
+  function endpoint(p, shift) {
+    let dx = p.x - start.x,
+      dy = p.y - start.y;
+    if (shift && ['rect', 'ellipse'].includes(tool)) {
+      const side = Math.max(Math.abs(dx), Math.abs(dy));
+      dx = (dx < 0 ? -1 : 1) * side;
+      dy = (dy < 0 ? -1 : 1) * side;
+    } else if (shift && ['line', 'arrow'].includes(tool)) {
+      const angle = (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * Math.PI) / 4,
+        len = Math.hypot(dx, dy);
+      dx = Math.cos(angle) * len;
+      dy = Math.sin(angle) * len;
+    }
+    return new Point(
+      Math.max(0, Math.min(size.width, start.x + dx)),
+      Math.max(0, Math.min(size.height, start.y + dy))
+    );
+  }
+  function updateDraft(p) {
+    const left = Math.min(start.x, p.x),
+      top = Math.min(start.y, p.y),
+      width = Math.max(1, Math.abs(p.x - start.x)),
+      height = Math.max(1, Math.abs(p.y - start.y));
+    if (!draft) {
+      const style = {
+        originX: 'left',
+        originY: 'top',
+        fill: 'transparent',
+        stroke: defaults.color,
+        strokeWidth: defaults.width,
+        strokeUniform: true,
+        strokeDashArray: defaults.dash ? [defaults.width * 3, defaults.width * 2] : null,
+        labelSize: defaults.font,
+      };
+      if (tool === 'rect') draft = new LabelRect(style);
+      else if (tool === 'ellipse') draft = new LabelEllipse(style);
+      else if (tool === 'text')
+        draft = new NoteTextBox('', {
+          ...style,
+          fill: defaults.color,
+          stroke: null,
+          fontSize: defaults.font,
+          fontFamily: 'Segoe UI, sans-serif',
+        });
+      else draft = new ArrowLine([start, p], { ...style, fill: null, arrow: tool === 'arrow' });
+      prepare(draft);
+      scene.add(draft);
+    }
+    if (draft instanceof ArrowLine) {
+      draft.set('points', [start, p]);
+      draft.setBoundingBox(true);
+    } else if (tool === 'ellipse') draft.set({ left, top, rx: width / 2, ry: height / 2 });
+    else if (tool === 'text') {
+      draft.set({ left, top, width: Math.max(25, width), minimumBoxHeight: height });
+      draft.initDimensions();
+    } else draft.set({ left, top, width, height });
+    draft.setCoords();
+    scene.requestRenderAll();
+  }
+  scene.on('mouse:down', ({ scenePoint }) => {
+    if (['select', 'pen'].includes(tool) || !inside(scenePoint) || restoring) return;
+    start = scenePoint;
   });
-  scene.on('mouse:up', () => {
-    if (!draft) return;
+  scene.on('mouse:move', ({ scenePoint, e }) => {
+    if (!start || (!draft && scenePoint.distanceFrom(start) * scale < 3)) return;
+    updateDraft(endpoint(scenePoint, e.shiftKey));
+  });
+  scene.on('mouse:up', ({ scenePoint, e }) => {
+    if (!start) return;
+    if (tool === 'text' && !draft)
+      updateDraft(
+        new Point(Math.min(size.width, start.x + 160 / scale), start.y + defaults.font * 1.35)
+      );
+    else if (draft) updateDraft(endpoint(scenePoint, e.shiftKey));
     const o = draft;
     draft = null;
-    setupObjects();
+    start = null;
+    if (!o) return;
     setTool('select');
     scene.setActiveObject(o);
-    if (o instanceof Textbox) o.enterEditing();
+    if (o instanceof Textbox) {
+      o.enterEditing();
+      o.hiddenTextarea?.focus();
+    } else record();
     scene.requestRenderAll();
-    record();
   });
   scene.on('path:created', ({ path }) => {
+    prepare(path);
     setTool('select');
     scene.setActiveObject(path);
     record();
+    scene.requestRenderAll();
   });
   scene.on('object:modified', record);
-  scene.on('text:editing:exited', record);
-  async function editLabel(o, initial) {
-    if (!(o instanceof LabelRect || o instanceof LabelEllipse)) return;
-    const text = await inputDialog(T('形状文字', 'Shape text'), initial ?? o.label ?? '', {
-      multi: true,
-    });
-    if (text !== null) {
-      o.set({ label: text, labelSize: font, dirty: true });
-      scene.requestRenderAll();
-      record();
+  let priorText = '';
+  scene.on('text:editing:entered', ({ target }) => {
+    priorText = target.text;
+    target.hiddenTextarea?.addEventListener(
+      'keydown',
+      (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          target.set('text', priorText);
+          target.exitEditing();
+          stage.focus();
+        }
+      },
+      { capture: true }
+    );
+  });
+  scene.on('text:editing:exited', ({ target }) => {
+    if (!target.text.trim()) {
+      scene.discardActiveObject();
+      scene.remove(target);
     }
-  }
+    record();
+    sync();
+  });
+  for (const event of ['selection:created', 'selection:updated', 'selection:cleared'])
+    scene.on(event, sync);
   scene.on('mouse:dblclick', ({ target }) => editLabel(target));
-  stage.onwheel = (e) => {
-    if (e.ctrlKey) {
+  stage.addEventListener(
+    'wheel',
+    (e) => {
+      if (e.target.closest('textarea')) return;
       e.preventDefault();
-      zoom(scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
-    }
-  };
+      const r = stage.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey)
+        zoom(
+          scale * Math.exp(-Math.max(-150, Math.min(150, e.deltaY)) * 0.008),
+          e.clientX - r.left,
+          e.clientY - r.top
+        );
+      else {
+        tx -= e.deltaX;
+        ty -= e.deltaY;
+        fitted = false;
+        view();
+      }
+    },
+    { passive: false }
+  );
+  stage.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (e.target.closest('textarea')) return;
+      if ((spaceDown || e.button === 1) && !start) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        stage.setPointerCapture(e.pointerId);
+        panning = { x: e.clientX, y: e.clientY, tx, ty };
+        stage.classList.add('panning');
+      } else if (tool === 'pen' && !inside(scene.getScenePoint(e))) e.stopImmediatePropagation();
+    },
+    true
+  );
+  stage.addEventListener('pointermove', (e) => {
+    if (!panning) return;
+    tx = panning.tx + e.clientX - panning.x;
+    ty = panning.ty + e.clientY - panning.y;
+    fitted = false;
+    view();
+  });
+  stage.addEventListener('lostpointercapture', () => {
+    panning = null;
+    stage.classList.remove('panning');
+  });
   d.onkeydown = guard(async (e) => {
-    const o = scene.getActiveObject();
+    const o = scene.getActiveObject(),
+      mod = e.ctrlKey || e.metaKey,
+      key = e.key.toLowerCase();
     if (o?.isEditing) {
-      if (e.ctrlKey && e.key === 'Enter') o.exitEditing();
+      if ((mod && key === 'enter') || key === 'escape') {
+        e.preventDefault();
+        if (key === 'escape') o.set('text', priorText);
+        o.exitEditing();
+        stage.focus();
+      }
       return;
     }
-    if (e.target.matches('input,textarea,select') || document.querySelector('dialog:last-of-type') !== d)
-      return;
-    if (e.key === 'Delete') remove();
-    else if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+    if (e.target.matches('input,textarea,select')) return;
+    if (e.code === 'Space' && !e.target.matches('button')) {
       e.preventDefault();
-      await restore(e.shiftKey ? future : history, e.shiftKey ? history : future);
-    } else if (e.ctrlKey && e.key === '0') {
+      spaceDown = true;
+      stage.classList.add('canPan');
+      return;
+    }
+    if (key === 'escape' && start) {
+      e.preventDefault();
+      if (draft) scene.remove(draft);
+      draft = null;
+      start = null;
+      scene.requestRenderAll();
+      return;
+    }
+    if (key === 'delete' || key === 'backspace') {
+      e.preventDefault();
+      remove.click();
+    } else if (mod && ['z', 'y'].includes(key)) {
+      e.preventDefault();
+      const forward = key === 'y' || e.shiftKey;
+      await restore(forward ? future : history, forward ? history : future);
+    } else if (mod && key === '0') {
       e.preventDefault();
       fit();
-    } else if (o && e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-      await editLabel(o, e.key);
+    } else if (mod && ['-', '=', '+'].includes(key)) {
+      e.preventDefault();
+      zoom(scale * (key === '-' ? 0.8 : 1.25));
+    } else if (mod && key === 'c') {
+      e.preventDefault();
+      copy.click();
+    } else if (!mod && key === 'enter' && isLabel(o)) {
+      e.preventDefault();
+      editLabel(o);
+    } else if (!mod) {
+      const item = names.find((n) => n[3].toLowerCase() === key);
+      if (item) setTool(item[0]);
     }
   });
+  const releaseSpace = () => {
+    spaceDown = false;
+    stage.classList.remove('canPan');
+  };
+  d.onkeyup = (e) => {
+    if (e.code === 'Space') releaseSpace();
+  };
+  window.addEventListener('blur', releaseSpace);
   d.addEventListener('close', () => {
-    scene.getActiveObject()?.exitEditing?.();
+    resize.disconnect();
+    window.removeEventListener('blur', releaseSpace);
+    endText();
+    if (draft) {
+      scene.remove(draft);
+      draft = null;
+    }
     record();
     scene.dispose();
     refresh();
   });
   setTool('select');
+  stage.focus();
   fit();
-  scene.requestRenderAll();
 }
