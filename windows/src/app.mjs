@@ -403,3 +403,38 @@ document.body.dataset.host = navigator.userAgent.includes('Windows') ? 'windows'
 init(await folio.init());
 shell();
 await folio.ready();
+
+// The collapsed composer can be moved without opening it, just like its expanded header.
+const pill = $('ask');
+pill.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0) return;
+  const bounds = $('canvasArea').getBoundingClientRect(),
+    start = pill.getBoundingClientRect();
+  const x = event.clientX,
+    y = event.clientY;
+  let moved = false;
+  pill.setPointerCapture(event.pointerId);
+  const move = (pointer) => {
+    const dx = pointer.clientX - x,
+      dy = pointer.clientY - y;
+    if (!moved && Math.hypot(dx, dy) < 4) return;
+    moved = true;
+    const left = Math.max(0, Math.min(bounds.width - start.width, start.left - bounds.left + dx));
+    const top = Math.max(0, Math.min(bounds.height - start.height, start.top - bounds.top + dy));
+    Object.assign(pill.style, { left: left + 'px', top: top + 'px', right: 'auto', bottom: 'auto' });
+  };
+  const end = () => {
+    pill.removeEventListener('pointermove', move);
+    if (moved)
+      pill.addEventListener(
+        'click',
+        (e) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        },
+        { once: true, capture: true }
+      );
+  };
+  pill.addEventListener('pointermove', move);
+  pill.addEventListener('lostpointercapture', end, { once: true });
+});

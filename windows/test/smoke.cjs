@@ -104,6 +104,22 @@ async function run() {
     await readState((s) =>
       assert.equal(s.cards.find((c) => c.kind === 'pin').drawing.objects.length, 1)
     );
+    await button('文本框').click();
+    await win.mouse.move(surface.x + surface.width * 0.25, surface.y + surface.height * 0.32);
+    await win.mouse.down();
+    await win.mouse.move(surface.x + surface.width * 0.68, surface.y + surface.height * 0.7, {
+      steps: 6,
+    });
+    await win.mouse.up();
+    await win.keyboard.insertText('Figure A');
+    await win.keyboard.press('Control+Enter');
+    await readState((s) => {
+      const text = s.cards
+        .find((c) => c.kind === 'pin')
+        .drawing.objects.find((o) => o.type === 'FolioTextBox');
+      assert.equal(text.text, 'Figure A');
+      assert.ok(text.minimumBoxHeight > 12);
+    });
     await win.locator('dialog .dialogHead button').click();
     await win.waitForSelector('dialog', { state: 'detached' });
     await win.locator('#display').click();
@@ -125,19 +141,28 @@ async function run() {
     console.log('PASS deletion/undo, clip, draw, zoom, rotate, source navigation, bookmarks and search');
     // Send the real print layout through Chromium's PDF printer in place of a
     // physical printer dialog on the unattended runner.
-    await app.evaluate(({BrowserWindow})=>{
-      const wc=BrowserWindow.getAllWindows()[0].webContents;
-      wc.print=async(_options,callback)=>{
-        try{const data=await wc.printToPDF({printBackground:true});globalThis.__folioPrint=data.subarray(0,5).toString();callback(true,'');}
-        catch(error){callback(false,error.message);}
+    await app.evaluate(({ BrowserWindow }) => {
+      const wc = BrowserWindow.getAllWindows()[0].webContents;
+      wc.print = async (_options, callback) => {
+        try {
+          const data = await wc.printToPDF({ printBackground: true });
+          globalThis.__folioPrint = data.subarray(0, 5).toString();
+          callback(true, '');
+        } catch (error) {
+          callback(false, error.message);
+        }
       };
     });
     await win.locator('#more').click();
     await button('打印当前页').click();
-    await eventually(async()=>assert.equal(await app.evaluate(()=>globalThis.__folioPrint),'%PDF-'));
-    if(process.env.FOLIO_SCREENSHOT_DIR){
-      await fs.mkdir(process.env.FOLIO_SCREENSHOT_DIR,{recursive:true});
-      await win.screenshot({path:path.join(process.env.FOLIO_SCREENSHOT_DIR,'Folio-Windows-reading.png')});
+    await eventually(async () =>
+      assert.equal(await app.evaluate(() => globalThis.__folioPrint), '%PDF-')
+    );
+    if (process.env.FOLIO_SCREENSHOT_DIR) {
+      await fs.mkdir(process.env.FOLIO_SCREENSHOT_DIR, { recursive: true });
+      await win.screenshot({
+        path: path.join(process.env.FOLIO_SCREENSHOT_DIR, 'Folio-Windows-reading.png'),
+      });
     }
     await win.locator('#more').click();
     await button('导出 Markdown 笔记…').click();

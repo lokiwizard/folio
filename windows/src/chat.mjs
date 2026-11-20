@@ -449,16 +449,17 @@ export function showChat() {
   });
   q.onpaste = guard(async (e) => {
     const files = [...e.clipboardData.files];
-    if (files.length) {
-      e.preventDefault();
-      await addFiles(files);
-      return;
-    }
-    if (navigator.userAgent.includes('Windows') && !e.clipboardData.getData('text/plain')) {
-      e.preventDefault();
-      const copied = await folio.copiedFiles();
-      if (copied.length)
-        await addFiles(copied.map((f) => new File([f.bytes], f.name, { type: f.type })));
+    const text = e.clipboardData.getData('text/plain');
+    const maybeFiles =
+      navigator.userAgent.includes('Windows') && (!text || /^[A-Za-z]:[\\/]/.test(text));
+    if (!files.length && !maybeFiles) return;
+    e.preventDefault();
+    const copied = maybeFiles ? await folio.copiedFiles().catch(() => []) : [];
+    if (copied.length) await addFiles(copied.map((f) => new File([f.bytes], f.name, { type: f.type })));
+    else if (files.length) await addFiles(files);
+    else if (text) {
+      q.setRangeText(text, q.selectionStart, q.selectionEnd, 'end');
+      draft = q.value;
     }
   });
   const picker = el('input', {

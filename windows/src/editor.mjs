@@ -13,7 +13,7 @@ import {
 } from '../assets/fabric.mjs';
 import { S, T, el, btn, select, row, modal, inputDialog, save, guard } from './ui.mjs';
 import { renderCrop } from './reader.mjs';
-FabricObject.customProperties = ['label', 'labelSize', 'arrow', 'folioLine'];
+FabricObject.customProperties = ['label', 'labelSize', 'arrow', 'minimumBoxHeight'];
 function shapeLabel(ctx, o) {
   if (!o.label) return;
   ctx.save();
@@ -41,6 +41,30 @@ class LabelEllipse extends Ellipse {
     shapeLabel(ctx, this);
   }
 }
+// Resize the frame independently of its type size, including after reopening.
+class NoteTextBox extends Textbox {
+  static type = 'FolioTextBox';
+  static createControls() {
+    const result = super.createControls();
+    for (const control of Object.values(result.controls)) {
+      if ((!control.x && !control.y) || control.actionName === 'rotate') continue;
+      control.actionName = 'resizing';
+      control.actionHandler = controlsUtils.wrapWithFixedAnchor((event, transform, x, y) => {
+        const widthChanged = control.x && controlsUtils.changeObjectWidth(event, transform, x, y);
+        const heightChanged = control.y && controlsUtils.changeObjectHeight(event, transform, x, y);
+        const box = transform.target;
+        if (heightChanged) box.minimumBoxHeight = box.height;
+        box.initDimensions();
+        return !!(widthChanged || heightChanged);
+      });
+    }
+    return result;
+  }
+  initDimensions() {
+    super.initDimensions();
+    this.height = Math.max(this.height || 0, this.minimumBoxHeight || 0);
+  }
+}
 class ArrowLine extends Polyline {
   static type = 'FolioLine';
   _render(ctx) {
@@ -62,7 +86,7 @@ class ArrowLine extends Polyline {
     ctx.restore();
   }
 }
-for (const cls of [LabelRect, LabelEllipse, ArrowLine]) classRegistry.setClass(cls);
+for (const cls of [LabelRect, LabelEllipse, ArrowLine, NoteTextBox]) classRegistry.setClass(cls);
 const dimensions = (base) => ({ width: base.width, height: base.height });
 export async function rawPin(card, max = 1800, rotation = S.state.rotations[card.anchors[0].page] || 0) {
   const a = card.anchors[0];
@@ -156,8 +180,10 @@ export async function editor(card, refresh) {
     }
   }
   function setupObjects() {
-    for (const o of scene.getObjects())
+    for (const o of scene.getObjects()) {
       if (o instanceof ArrowLine) o.controls = controlsUtils.createPolyControls(o);
+      if (o instanceof Textbox) o.hiddenTextareaContainer = stage;
+    }
   }
   if (card.drawing) {
     await scene.loadFromJSON(card.drawing);
@@ -297,11 +323,13 @@ export async function editor(card, refresh) {
     if (tool === 'rect') return new LabelRect({ ...style, width: w, height: h });
     if (tool === 'ellipse') return new LabelEllipse({ ...style, rx: w / 2, ry: h / 2 });
     if (tool === 'text')
-      return new Textbox('', {
+      return new NoteTextBox('', {
         ...style,
         fill: activeColor,
         stroke: null,
         width: Math.max(50, w),
+        minimumBoxHeight: h,
+        hiddenTextareaContainer: stage,
         fontSize: font,
         editable: true,
       });

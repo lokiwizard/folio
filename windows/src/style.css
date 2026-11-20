@@ -990,3 +990,40 @@ textarea {
   max-height: 82vh;
   overflow: auto;
 }
+
+#inspector {
+  position: relative;
+}
+.dragDelete {
+  position: absolute;
+  inset: 49px 0 0 auto;
+  width: 32px;
+  writing-mode: vertical-rl;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  background: rgba(193, 82, 72, 0.07);
+  border: 0;
+  border-left: 1px dashed #cd8179;
+  color: #9c4841;
+  z-index: 4;
+}
+[data-drop-edge='active'] .dragDelete,
+.dragDelete:hover {
+  background: #f5d4d1;
+}
+.chatbox {
+  position: relative;
+}
+.thread {
+  padding-right: 9px;
+}
+.timeline {
+  position: absolute;
+  right: 0;
+  top: 38%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

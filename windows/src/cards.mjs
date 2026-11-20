@@ -316,10 +316,12 @@ export function showCards(kind = section, focus) {
       e.dataTransfer.effectAllowed = 'copyMove';
       host.classList.add('dragging');
       dropZone.hidden = false;
+      host.dataset.dropEdge = '';
     };
     box.ondragend = () => {
       dropZone.hidden = true;
       host.classList.remove('dragging');
+      delete host.dataset.dropEdge;
     };
     box.ondragover = (e) => {
       if (e.dataTransfer.types.includes('application/x-folio-card')) e.preventDefault();
@@ -351,6 +353,8 @@ export function showCards(kind = section, focus) {
   host.append(dropZone);
   host.ondragover = (e) => {
     const b = host.getBoundingClientRect();
+    if (host.classList.contains('dragging'))
+      host.dataset.dropEdge = e.clientX > b.right - 32 ? 'active' : '';
     if (e.clientY < b.top + 35) host.scrollTop -= 12;
     if (e.clientY > b.bottom - 35) host.scrollTop += 12;
   };
@@ -368,7 +372,7 @@ export async function exportNotes() {
       (c) => c.kind === 'note' && (S.settings.tags.some((t) => t.id === c.tag) ? c.tag : '') === tag.id
     );
     if (!group.length) continue;
-    sections.push('## ' + tag.name, '');
+    sections.push('## ' + tagTitle(tag), '');
     for (const c of group)
       sections.push(
         '### ' + (c.title ? c.title + ' · ' : '') + pages(c),
