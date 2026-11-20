@@ -8,7 +8,6 @@ import {
   btn,
   icon,
   iconButton,
-  action,
   select,
   popup,
   hidePopup,
@@ -345,7 +344,6 @@ export async function navigation(mode = navMode) {
     })
   );
   if (mode === 'bookmarks') {
-    list.append(action('bookmark-plus', T('添加书签', 'Add bookmark'), bookmark, 'addMark'));
     for (const mark of S.state.bookmarks) {
       const jump = btn('', () => go(mark.page, mark.point, true), 'markJump');
       jump.append(
@@ -384,7 +382,10 @@ export async function navigation(mode = navMode) {
           icon('book-marked'),
           el('strong', { textContent: T('还没有书签', 'No bookmarks yet') }),
           el('span', {
-            textContent: T('按 Ctrl+D 记住当前阅读位置。', 'Press Ctrl+D to save your place.'),
+            textContent: T(
+              '按 Ctrl+D，或在「更多」中选择「添加书签」。',
+              'Press Ctrl+D or choose Add bookmark from More.'
+            ),
           })
         )
       );

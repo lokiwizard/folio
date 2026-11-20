@@ -1118,15 +1118,6 @@ textarea {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.addMark {
-  justify-content: center;
-  width: 100%;
-  min-height: 31px;
-  margin: 1px 0 10px;
-  font-size: 13px;
-  font-weight: 550;
-  box-shadow: var(--shadow);
-}
 .bookmarkRow,
 .outlineItem {
   border-radius: 7px;
@@ -1389,6 +1380,13 @@ textarea {
   max-width: 120px;
   padding: 2px 4px;
   font-size: 12px;
+}
+.menuList kbd {
+  margin-inline-start: auto;
+  padding-inline-start: 12px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
 }
 .menuList hr {
   width: calc(100% - 12px);

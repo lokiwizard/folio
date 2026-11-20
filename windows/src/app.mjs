@@ -204,7 +204,17 @@ function fileMenu(e) {
     ['globe', T('界面语言', 'Language'), language],
     ['settings', T('设置…', 'Settings…'), () => settings()],
   ];
-  menu(e.clientX, e.clientY, ...actions.map(([symbol, l, f]) => action(symbol, l, f)));
+  const items = actions.map(([symbol, label, handler]) => {
+    const item = action(symbol, label, handler);
+    if (handler === reader.bookmark) {
+      const shortcut = el('kbd', { textContent: 'Ctrl+D' });
+      shortcut.setAttribute('aria-hidden', 'true');
+      item.setAttribute('aria-keyshortcuts', 'Control+D');
+      item.append(shortcut);
+    }
+    return item;
+  });
+  menu(e.clientX, e.clientY, ...items);
 }
 const on = (id, fn) => $(id).addEventListener('click', guard(fn));
 on('rightToggle', () => {
