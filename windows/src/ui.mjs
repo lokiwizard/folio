@@ -18,8 +18,10 @@ export function toast(text){const node=$('toast');node.textContent=text;node.hid
 export const btn=(text,fn,cls='')=>el('button',{textContent:text,onclick:fn,class:cls});
 export const select=(options,value,change)=>{const n=el('select',{onchange:()=>change?.(n.value)});for(const [v,t] of options)n.append(el('option',{value:v,textContent:t}));n.value=value;return n;};
 export const row=(...nodes)=>el('div',{class:'row'},...nodes);
-export function popup(x,y,...actions){
-  const n=$('actionBar');n.replaceChildren(...actions);n.hidden=false;
+export function popup(x,y,...actions){return showPopup(x,y,false,actions);}
+export function menu(x,y,...actions){return showPopup(x,y,true,actions);}
+function showPopup(x,y,vertical,actions){
+  const n=$('actionBar');n.classList.toggle('menuList',vertical);n.replaceChildren(...actions);n.hidden=false;
   n.style.left=Math.max(2,Math.min(x,innerWidth-n.offsetWidth-8))+'px';n.style.top=Math.max(2,Math.min(y,innerHeight-n.offsetHeight-6))+'px';
 }
 export function hidePopup(){$('actionBar').hidden=true;}
@@ -41,7 +43,9 @@ export function inputDialog(title,value='',options={}){
     input.onkeydown=e=>{if(e.key==='Enter'&&(!options.multi||e.ctrlKey)){e.preventDefault();submit();}};
   });
 }
-export function localize(){document.documentElement.lang=T('zh-CN','en');for(const node of document.querySelectorAll('[data-label]'))node.textContent=T(...node.dataset.label.split('|'));for(const node of document.querySelectorAll('[data-placeholder]'))node.placeholder=T(...node.dataset.placeholder.split('|'));}
+export function icon(name){const i=el('i',{class:'icon'});i.setAttribute('aria-hidden','true');i.style.setProperty('--icon','url(../assets/icons/'+name+'.svg)');return i;}
+export function iconButton(name,title,fn){const b=btn('',fn,'glyph');b.setAttribute('aria-label',title);b.title=title;b.append(icon(name));return b;}
+export function localize(){document.documentElement.lang=T('zh-CN','en');for(const node of document.querySelectorAll('[data-label]')){const title=T(...node.dataset.label.split('|'));node.textContent=title;if(node.dataset.icon){node.setAttribute('aria-label',title);node.title=title;node.classList.add('glyph');node.replaceChildren(icon(node.dataset.icon));}}for(const node of document.querySelectorAll('[data-placeholder]'))node.placeholder=T(...node.dataset.placeholder.split('|'));}
 export async function preference(change){Object.assign(S.settings,change);await folio.settings(change);}
 let timer,pending=Promise.resolve();
 export function save(){clearTimeout(timer);timer=setTimeout(()=>flush().catch(report),120);}

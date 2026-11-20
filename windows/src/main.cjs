@@ -34,7 +34,7 @@ function offer(file) {
   pendingFile=path.resolve(file);
   if(ready){send('open',true);}
 }
-function cleanSettings(){const {recents=[],profiles=[],...settings}=prefs;return {settings,profiles,recents:recents.map(({id,name})=>({id,name})),endpoints:ai.endpoints};}
+function cleanSettings(){const {recents=[],profiles=[],...settings}=prefs;return {settings,profiles,recents:recents.map(({id,name,folder,pages,date})=>({id,name,folder,pages,date})),endpoints:ai.endpoints};}
 async function loadPDF(file) {
   if (!file) return null;
   if(path.extname(file).toLowerCase()!=='.pdf')throw Error('PDF required');
@@ -61,7 +61,7 @@ else {
     if(url.host!=='desktop'|| !/^(src|assets)\//.test(relative)||relative.includes('..')||/[\\:\0]/.test(relative)||relative.endsWith('.cjs'))return new Response(null,{status:404});
     return net.fetch(pathToFileURL(path.join(__dirname,'..',relative)).href);
   });
-  win=new BrowserWindow({title:'Folio',width:1400,height:900,minWidth:840,minHeight:540,backgroundColor:'#f4f5f4',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
+  win=new BrowserWindow({title:'Folio',width:1140,height:740,titleBarStyle:'hidden',titleBarOverlay:process.platform==='win32'?{color:'#ededee',symbolColor:'#464647',height:46}:false,trafficLightPosition:{x:15,y:16},minWidth:840,minHeight:540,backgroundColor:'#efeff0',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
   Menu.setApplicationMenu(null);
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   win.webContents.on('will-navigate',event=>event.preventDefault());
@@ -78,8 +78,9 @@ else {
   handle('drop',file=>loadPDF(file));
   handle('read',async id=>fs.readFile(fileFor(id)));
   handle('recent',id=>loadPDF(prefs.recents?.find(x=>x.id===id)?.path));
-  handle('paper',async id=>{
-    const file=fileFor(id);prefs.recents=[{id,path:file,name:path.basename(file)},...(prefs.recents??[]).filter(x=>x.id!==id)].slice(0,40);
+  handle('forgetRecent',async id=>{prefs.recents=(prefs.recents??[]).filter(r=>r.id!==id);await persist('preferences.json',prefs);});
+  handle('paper',async (id,pages)=>{
+    const file=fileFor(id);prefs.recents=[{id,path:file,name:path.basename(file),folder:path.basename(path.dirname(file)),pages,date:Date.now()},...(prefs.recents??[]).filter(x=>x.id!==id)].slice(0,40);
     await persist('preferences.json',prefs);
   });
   handle('savePaper',(id,data)=>{fileFor(id);return persist(id+'.json',data);});

@@ -1,15 +1,15 @@
-import {S,T,$,el,btn,select,row,modal,inputDialog,save,preference,uid,pageLabel,toast,guard,report} from './ui.mjs';
+import {S,T,$,el,btn,icon,iconButton,select,row,modal,inputDialog,save,preference,uid,pageLabel,toast,guard,report} from './ui.mjs';
 import {current,loadTask,renderCrop,requireCopy} from './reader.mjs';
 import {rawPin} from './editor.mjs';
 import {renderMath} from '../assets/math/render.mjs';
 export const chatHooks={tab:()=>{},settings:()=>{},models:()=>{}};
 const limits={file:64*1024**2,message:12*1024**2};
-let draft='',attachments=[],includePage=false,whole=true,token=null,loading=false,floating=false,position=null;
+let draft='',attachments=[],includePage=false,whole=true,token=null,loading=false,floating=true,position=null;
 const threads=()=>S.state.chats;
 const active=()=>threads().find(c=>c.id===S.state.chatId);
 function newSession(){const c={id:uid(),turns:[],whole:true};threads().unshift(c);S.state.chatId=c.id;clearDraft();save();return c;}
 function clearDraft(){attachments=[];draft='';includePage=false;whole=active()?.whole??true;}
-export function resetChat(){if(token)folio.stop(token);token=null;loading=false;attachments=[];draft='';whole=true;includePage=false;floating=false;position=null;}
+export function resetChat(){document.querySelector('#canvasArea .composer')?.remove();$('ask').hidden=false;if(token)folio.stop(token);token=null;loading=false;attachments=[];draft='';whole=true;includePage=false;floating=true;position=null;}
 export function setupChat(){clearDraft();}
 function title(c){return c.turns[0]?.question?.slice(0,42)||T('新对话','New chat');}
 function label(c){return c.title||c.name||[...new Set((c.anchors||[]).map(a=>pageLabel(a.page)))].join(', ');}
@@ -86,7 +86,7 @@ folio.on('delta',({token:t,text})=>{
   if(target){const thread=$('thread'),bottom=thread.scrollHeight-thread.scrollTop-thread.clientHeight<60;renderMath(turn.answer,target);if(bottom)thread.scrollTop=thread.scrollHeight;}
 });
 export function showChat(){
-  const host=$('rightContent');host.ondragover=null;host.replaceChildren();
+  document.querySelector('#canvasArea .composer')?.remove();$('ask').hidden=floating;const host=$('rightContent');host.ondragover=null;host.replaceChildren();
   let c=active();if(!c)c=newSession();
   const thread=el('div',{class:'thread',id:'thread'}),timeline=el('div',{class:'timeline'}),root=el('div',{class:'chatbox'});host.append(root);
   const switcher=select(threads().map(s=>[s.id,title(s)]),c.id,id=>{if(token)return;S.state.chatId=id;clearDraft();save();showChat();});switcher.disabled=!!token;
@@ -97,13 +97,13 @@ export function showChat(){
     const a=el('div',{class:'message',id:'answer-'+t.id});renderMath(t.answer,a);thread.append(q,a);timeline.append(btn('●',()=>q.scrollIntoView({block:'start'})));
   }
   if(!c.turns.length){for(const p of S.settings.prompts){const b=btn(typeof p==='string'?p:T(p.zh,p.en),()=>{draft=b.textContent;$('question').value=draft;$('question').focus();});thread.append(b);}}
-  const composer=el('section',{class:'composer'+(floating?' floating':'')});root.append(composer);
+  const composer=el('section',{class:'composer'+(floating?' floating':'')});(floating?$('canvasArea'):root).append(composer);
   const grip=el('strong',{textContent:T('问 AI','Ask AI')});grip.style.cursor='move';
-  const promptEdit=btn(T('提示词','Prompts'),async()=>{const initial=S.settings.prompts.map(p=>typeof p==='string'?p:T(p.zh,p.en)).join('\n');const s=await inputDialog(T('初始问题，每行一条','Starter questions, one per line'),initial,{multi:true});if(s!==null){await preference({prompts:s.split('\n').map(x=>x.trim()).filter(Boolean)});showChat();}});
-  composer.append(row(grip,promptEdit,btn(floating?T('停靠','Dock'):T('浮窗','Float'),()=>{floating=!floating;showChat();}),btn(T('收起','Collapse'),()=>{composer.hidden=true;restore.hidden=false;})));
-  const restore=btn(T('展开提问框','Expand composer'),()=>{composer.hidden=false;restore.hidden=true;});restore.hidden=true;root.append(restore);
+  grip.prepend(icon('message-square'));const promptEdit=btn(T('提示词','Prompts'),async()=>{const initial=S.settings.prompts.map(p=>typeof p==='string'?p:T(p.zh,p.en)).join('\n');const s=await inputDialog(T('初始问题，每行一条','Starter questions, one per line'),initial,{multi:true});if(s!==null){await preference({prompts:s.split('\n').map(x=>x.trim()).filter(Boolean)});showChat();}});
+  composer.append(row(grip,promptEdit,btn(floating?T('停靠','Dock'):T('浮窗','Float'),()=>{floating=!floating;showChat();}),btn(T('收起','Collapse'),()=>{composer.hidden=true;restore.hidden=false;$('ask').hidden=false;})));
+  const restore=btn(T('展开提问框','Expand composer'),()=>{composer.hidden=false;restore.hidden=true;$('ask').hidden=floating;});restore.hidden=true;root.append(restore);
   if(floating && position)Object.assign(composer.style,{left:position.x+'px',top:position.y+'px',bottom:'auto',right:'auto'});
-  grip.onpointerdown=e=>{if(!floating)return;grip.setPointerCapture(e.pointerId);const r=composer.getBoundingClientRect(),dx=e.clientX-r.x,dy=e.clientY-r.y;grip.onpointermove=ev=>{position={x:Math.max(0,Math.min(innerWidth-100,ev.clientX-dx)),y:Math.max(0,Math.min(innerHeight-60,ev.clientY-dy))};Object.assign(composer.style,{left:position.x+'px',top:position.y+'px',bottom:'auto',right:'auto'});};grip.onpointerup=()=>grip.onpointermove=null;};
+  grip.onpointerdown=e=>{if(!floating)return;grip.setPointerCapture(e.pointerId);const bounds=$('canvasArea').getBoundingClientRect(),r=composer.getBoundingClientRect(),dx=e.clientX-r.x,dy=e.clientY-r.y;grip.onpointermove=ev=>{position={x:Math.max(0,Math.min(bounds.width-composer.offsetWidth,ev.clientX-bounds.left-dx)),y:Math.max(0,Math.min(bounds.height-composer.offsetHeight,ev.clientY-bounds.top-dy))};Object.assign(composer.style,{left:position.x+'px',top:position.y+'px',bottom:'auto',right:'auto'});};grip.onpointerup=()=>grip.onpointermove=null;};
   const chips=el('div',{class:'tools'});attachments.forEach((r,i)=>chips.append(btn(label(r)+' ×',()=>{attachments.splice(i,1);showChat();},'chip')));composer.append(chips);
   if(attachments.some(a=>a.kind==='note')){for(const t of [T('解释','Explain'),T('翻译','Translate'),T('总结','Summarize')])chips.append(btn(t,()=>{draft=t;$('question').value=t;}));}
   const q=el('textarea',{id:'question',rows:3,value:draft,placeholder:T('输入问题，或拖入图表与文件…','Ask a question or drop figures and files…')});

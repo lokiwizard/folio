@@ -1,4 +1,5 @@
-import {S,T,$,el,btn,select,row,modal,inputDialog,save,toast,pageLabel,popup} from './ui.mjs';
+import {S,T,$,el,btn,icon,iconButton,select,row,modal,inputDialog,save,toast,pageLabel,popup} from './ui.mjs';
+import {tagTitle} from './settings.mjs';
 import {go,refreshMarks} from './reader.mjs';
 import {artwork,editor} from './editor.mjs';
 export const cardHooks={chat:()=>{},tab:()=>{}};
@@ -24,7 +25,7 @@ function cardOptions(c,e){
   if(c.kind==='pin'){
     const color=el('input',{type:'color',value:c.color||'#fafafa',title:T('便签底色','Card background'),onchange:e=>{c.color=e.target.value;changed();}});
     tools.push(color,btn(T('复制图片','Copy image'),async()=>folio.copyImage((await artwork(c)).toDataURL())));
-  }else tools.push(select([['',T('独立笔记','Independent note')],...S.settings.tags.map(t=>[t.id,t.name])],c.tag||'',v=>{c.tag=v;changed();}));
+  }else tools.push(select([['',T('独立笔记','Independent note')],...S.settings.tags.map(t=>[t.id,tagTitle(t)])],c.tag||'',v=>{c.tag=v;changed();}));
   popup(e.clientX,e.clientY,...tools);
 }
 export function showCards(kind=section,focus){
@@ -34,25 +35,33 @@ export function showCards(kind=section,focus){
   if(kind==='note'){
     const input=el('input',{type:'search',value:term,placeholder:T('搜索批注或备注','Find annotations')});
     input.oninput=()=>{term=input.value;showCards(kind);const i=host.querySelector('input');i.focus();};
-    tools.append(input,select([['',T('所有标签','All tags')],...S.settings.tags.map(t=>[t.id,t.name])],filter,v=>{filter=v;showCards(kind);}));
+    tools.append(input,select([['',T('所有标签','All tags')],...S.settings.tags.map(t=>[t.id,tagTitle(t)])],filter,v=>{filter=v;showCards(kind);}));
   }
   if(undo.length)tools.append(btn(T('撤销删除','Undo delete'),undelete));
   const list=S.state.cards.filter(c=>c.kind===kind && (kind==='pin'||((!filter||filter===c.tag)&&[c.text,c.title,c.note].some(s=>(s||'').toLowerCase().includes(term.toLowerCase())))));
-  if(!list.length)host.append(el('p',{class:'muted',textContent:kind==='pin'?T('框选论文中的图表即可固定在此处。','Select a figure in the paper to pin it here.'):T('选中原文并添加高亮或笔记。','Select a passage to highlight it or add a note.')}));
+  if(!list.length)host.append(el('div',{class:'emptyPane'},icon(kind==='pin'?'pin':'highlighter'),el('strong',{textContent:kind==='pin'?T('还没有便签','No pinned figures yet'):T('还没有批注','No annotations yet')}),el('span',{textContent:kind==='pin'?T('用右上角的虚线框选中图表。\n点「固定」后，翻页时也能对照。','Select a figure with the dashed rectangle.\nPin it to keep it in view as you read.'):T('选中原文并添加高亮或笔记。','Select a passage to highlight it or add a note.')})));
   observer=new IntersectionObserver(entries=>{for(const e of entries){if(!e.isIntersecting)continue;observer.unobserve(e.target);const card=S.state.cards.find(c=>c.id===e.target.dataset.id);if(!card)continue;artwork(card,600).then(canvas=>{if(e.target.isConnected && paper===S.id)e.target.src=canvas.toDataURL();}).catch(()=>{});}}, {root:host,rootMargin:'150px'});
   for(const c of list){
     const box=el('article',{class:'card',draggable:true});box.dataset.id=c.id;
     if(c.color){box.style.background=c.color;box.style.color='#212a25';}
-    const tag=S.settings.tags.find(t=>t.id===c.tag),label=el('strong',{textContent:c.title||tag?.name||name(c)});
-    box.append(row(btn(c.collapsed?'▸':'▾',()=>{c.collapsed=!c.collapsed;changed();}),label,btn(pages(c),()=>{const a=c.anchors[0];go(a.page,[a.rect[0],a.rect[3]],true);}),btn('…',e=>cardOptions(c,e))));
+    const tag=S.settings.tags.find(t=>t.id===c.tag),jump=btn(pages(c),()=>{const a=c.anchors[0];go(a.page,[a.rect[0],a.rect[3]],true);},'jump');
+    jump.prepend(icon('arrow-up-left'));
+    const edit=async()=>{const value=await inputDialog(T('编辑个人备注','Edit personal note'),c.note||'',{multi:true});if(value!==null){c.note=value;c.noteEditedAt=Date.now();changed();}};
+    const head=row();box.append(head);
+    if(c.kind==='note'){const dot=el('i',{class:'dot'});dot.style.background=tag?.color||'#999';head.append(dot);}
+    if(c.title)head.append(el('strong',{textContent:c.title}));
+    if(c.kind==='pin')head.append(jump,iconButton('square-pen',T('编辑备注','Edit note'),edit));
+    else if(tag)head.append(el('span',{class:'tag',textContent:(c.title?' · ':'')+tagTitle(tag)}));
+    head.append(el('span',{class:'space'}),iconButton('ellipsis',T('卡片操作','Card actions'),e=>cardOptions(c,e)),iconButton(c.collapsed?'chevron-right':'chevron-down',T('折叠或展开','Collapse or expand'),()=>{c.collapsed=!c.collapsed;changed();}));
     if(!c.collapsed){
       if(c.kind==='pin'){
-        const img=el('img',{alt:name(c),onclick:()=>editor(c,()=>showCards(kind)),oncontextmenu:e=>{e.preventDefault();cardOptions(c,e);}});img.dataset.id=c.id;img.style.width=(c.scale||1)*100+'%';img.style.maxWidth=(c.scale||1)>1?'none':'100%';const wrap=el('div',{},img);wrap.style.overflow='auto';box.append(wrap);observer.observe(img);
+        const img=el('img',{alt:name(c),onclick:()=>editor(c,()=>showCards(kind)),oncontextmenu:e=>{e.preventDefault();cardOptions(c,e);}});img.dataset.id=c.id;img.style.width=(c.scale||1)*100+'%';img.style.maxWidth=(c.scale||1)>1?'none':'100%';const wrap=el('div',{class:'art'},img);wrap.style.overflow='auto';box.append(wrap);observer.observe(img);
       }else{
-        const quote=el('p',{class:'quote truncated',textContent:c.text});quote.style.fontSize=(c.scale||1)+'em';box.append(quote);
+        const quote=el('p',{class:'quote truncated',textContent:c.text});quote.style.fontSize=(15.5*(c.scale||1))+'px';box.append(quote);
         if(c.text.length>100)box.append(btn(T('展开全文','Expand text'),()=>quote.classList.toggle('truncated')));
       }
-      if(c.note)box.append(el('p',{class:'memo',textContent:c.note}));
+      if(c.note){const memo=el('section',{class:'memoBox',onclick:edit},el('small',{},T('我的思考','My thoughts'),el('time',{textContent:c.noteEditedAt?new Date(c.noteEditedAt).toLocaleString(T('zh-CN','en-US'),{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):''})),el('p',{class:'memo',textContent:c.note}));box.append(memo);}
+      if(c.kind==='note')box.append(el('footer',{},jump,el('span',{class:'space'}),iconButton('square-pen',T('编辑备注','Edit note'),edit)));
     }
     box.ondragstart=e=>{e.dataTransfer.setData('application/x-folio-card',c.id);e.dataTransfer.effectAllowed='copyMove';host.classList.add('dragging');dropZone.hidden=false;};
     box.ondragend=()=>{dropZone.hidden=true;host.classList.remove('dragging');};

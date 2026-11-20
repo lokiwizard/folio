@@ -1,8 +1,8 @@
 importScripts('../assets/qpdf/qpdf.js');
-onmessage=async ({data:{bytes,password,range}})=>{
+onmessage=async ({data:{bytes,password,range,wasm}})=>{
   try {
-    const wasmBinary=await (await fetch('../assets/qpdf/qpdf.wasm')).arrayBuffer();
-    const q=await Module({wasmBinary,quit:(code,error)=>{throw error;}, printErr:()=>{}});
+    const compiled=await WebAssembly.compile(wasm);
+    const q=await Module({instantiateWasm(imports,ready){const instance=new WebAssembly.Instance(compiled,imports);ready(instance);return instance.exports;},printErr:()=>{}});
     q.FS.writeFile('/paper.pdf',new Uint8Array(bytes));
     const code=q.callMain(['--empty','--pages','/paper.pdf','--password='+password,range,'--','/extract.pdf']);
     if (code!==0 && code!==3) throw Error('PDF extraction failed');

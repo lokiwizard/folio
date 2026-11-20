@@ -1,5 +1,6 @@
+import {tagTitle} from './settings.mjs';
 import * as pdfjs from '../assets/pdf/build/pdf.mjs';
-import {S,T,$,el,btn,select,popup,hidePopup,inputDialog,toast,uid,save,flush,pageLabel,parsePages,paperState,report} from './ui.mjs';
+import {S,T,$,el,btn,icon,select,popup,hidePopup,inputDialog,toast,uid,save,flush,pageLabel,parsePages,paperState,report} from './ui.mjs';
 const {EventBus,PDFViewer,PDFLinkService,PDFFindController}=await import('../assets/pdf/web/pdf_viewer.mjs');
 const assets=new URL('../assets/pdf/',import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc=assets+'build/pdf.worker.mjs';
@@ -71,14 +72,14 @@ export async function openPaper(get){
     for(const [n,rot] of Object.entries(state.rotations))view.getPageView(Number(n)-1)?.update({rotation:rot});
     go(state.page||1,state.point);view.update();restoring=false;
     $('pageCount').textContent='/ '+doc.numPages;$('page').max=doc.numPages;$('page').value=current();
-    history=[];sourceLinks=new Map();hooks.opened();await folio.paper(S.id);
+    history=[];sourceLinks=new Map();hooks.opened();await folio.paper(S.id,S.doc.numPages);
     await navigation(navMode);importMarks(doc).catch(report);
   } finally{opening=false;if(nextTask)await nextTask.destroy();}
 }
 function getLocation(){const loc=view._location;return loc?{page:loc.pageNumber,point:[loc.left,loc.top]}:{page:current()};}
 bus.on('updateviewarea',({location})=>{if(!S.state||restoring)return;S.state.page=location.pageNumber;S.state.point=[location.left,location.top];$('page').value=current();save();});
 bus.on('scalechanging',({scale,presetValue})=>{if(!S.state)return;const value=presetValue||String(scale);if(!restoring){S.state.scale=value;save();}zoomOptions(value);});
-bus.on('pagechanging',({pageNumber})=>{$('page').value=pageNumber;});
+bus.on('pagechanging',({pageNumber})=>{$('page').value=pageNumber;for(const b of $('navList').querySelectorAll('.thumbnail'))b.classList.toggle('current',Number(b.dataset.page)===pageNumber);});
 bus.on('pagerendered',({pageNumber})=>marks(pageNumber));
 bus.on('updatefindmatchescount',({matchesCount:c})=>{$('matches').textContent=c.current+' / '+c.total;});
 bus.on('updatefindcontrolstate',({matchesCount:c})=>{if(c)$('matches').textContent=c.current+' / '+c.total;});
@@ -96,19 +97,19 @@ export function go(page,point,record=false){
 export function back(){const loc=history.pop();if(loc)go(loc.page,loc.point);}
 export function rotate(){const p=current(),v=view.getPageView(p-1);S.state.rotations[p]=((S.state.rotations[p]||0)+90)%360;v.update({rotation:S.state.rotations[p]});view.update();save();marks(p);}
 export function mode(){S.state.continuous=!S.state.continuous;view.scrollMode=S.state.continuous?0:3;updateMode();save();}
-export function updateMode(){$('mode').classList.toggle('active',S.state?.continuous===false);}
+export function updateMode(){$('display').classList.toggle('active',S.state?.continuous===false);}
 export function search(again=false,prev=false){bus.dispatch('find',{source:window,type:again?'again':'',query:$('query').value,caseSensitive:false,entireWord:false,highlightAll:true,findPrevious:prev,matchDiacritics:false});}
 export function showFind(show=true){$('findBar').hidden=!show;if(show){$('query').focus();$('query').select();}else bus.dispatch('findbarclose',{});}
 export function zoomBy(f){view.currentScale=Math.max(.15,Math.min(8,view.currentScale*f));}
 export async function bookmark(){
   const loc=getLocation(),name=await inputDialog(T('书签名称','Bookmark name'),pageLabel(loc.page));if(name===null)return;
-  S.state.bookmarks.push({...loc,id:uid(),name});save();await navigation('bookmarks');
+  S.state.bookmarks.push({...loc,id:uid(),name});save();hooks.openNav?.();await navigation('bookmarks');
 }
 export async function navigation(mode=navMode){
   navMode=mode;thumbObserver?.disconnect();const doc=S.doc;if(!doc)return;
   const list=$('navList');list.replaceChildren();
   const tabs=[['pages',T('页面','Pages')],['outline',T('目录','Outline')],['bookmarks',T('书签','Marks')]];
-  $('navTabs').replaceChildren(...tabs.map(([v,t])=>btn(t,()=>navigation(v),v===mode?'active':'')));
+  $('navTabs').replaceChildren(...tabs.map(([v,t])=>{const b=btn(t,()=>navigation(v),v===mode?'active':'');b.prepend(icon({pages:'panels-top-left',outline:'align-left',bookmarks:'bookmark'}[v]));return b;}));
   if(mode==='bookmarks'){
     list.append(btn(T('添加书签','Add bookmark'),bookmark));
     S.state.bookmarks.forEach(b=>list.append(el('div',{class:'tools'},btn(b.name,()=>go(b.page,b.point,true)),btn('✎',async()=>{const s=await inputDialog(T('重命名','Rename'),b.name);if(s!==null){b.name=s;save();navigation(mode);}}),btn('×',()=>{S.state.bookmarks=S.state.bookmarks.filter(x=>x!==b);save();navigation(mode);}))));
@@ -120,7 +121,7 @@ export async function navigation(mode=navMode){
     thumbObserver=new IntersectionObserver(entries=>{for(const e of entries){if(!e.isIntersecting)continue;thumbObserver.unobserve(e.target);
       const p=Number(e.target.dataset.page);renderCrop(doc,p,null,150).then(c=>{if(e.target.isConnected)e.target.prepend(el('img',{src:c.toDataURL()}));}).catch(()=>{});
     }},{root:list,rootMargin:'100px'});
-    for(let p=1;p<=doc.numPages;p++){const b=btn(pageLabel(p),()=>go(p,null,true),'thumbnail');b.style.minHeight='84px';b.dataset.page=p;list.append(b);thumbObserver.observe(b);}
+    for(let p=1;p<=doc.numPages;p++){const b=btn(pageLabel(p),()=>go(p,null,true),'thumbnail');b.classList.toggle('current',p===current());b.dataset.page=p;list.append(b);thumbObserver.observe(b);}
   }
 }
 function viewportRect(v,[x,y,X,Y]){return norm([...v.convertToViewportPoint(x,y),...v.convertToViewportPoint(X,Y)]);}
@@ -159,7 +160,7 @@ function selection(ev){
   }
   if(!anchors.length)return;
   const commit=(tag,note='')=>{makeNote(text,anchors,tag,note);sel.removeAllRanges();hidePopup();};
-  popup(ev.clientX,ev.clientY+8,select([[ '',T('高亮…','Highlight…')],...S.settings.tags.map(t=>[t.id,t.name])],'',id=>{if(id)commit(id);}),btn(T('默认高亮','Highlight'),()=>commit(S.settings.defaultTag)),btn(T('笔记','Note'),async()=>{const note=await inputDialog(T('添加备注','Add note'),'',{multi:true});if(note!==null)commit(null,note);}),btn(T('问 AI','Ask AI'),()=>hooks.quote({kind:'note',text,anchors,title:''})));
+  popup(ev.clientX,ev.clientY+8,select([[ '',T('高亮…','Highlight…')],...S.settings.tags.map(t=>[t.id,tagTitle(t)])],'',id=>{if(id)commit(id);}),btn(T('默认高亮','Highlight'),()=>commit(S.settings.defaultTag)),btn(T('笔记','Note'),async()=>{const note=await inputDialog(T('添加备注','Add note'),'',{multi:true});if(note!==null)commit(null,note);}),btn(T('问 AI','Ask AI'),()=>hooks.quote({kind:'note',text,anchors,title:''})));
 }
 $('viewer').addEventListener('pointerup',e=>setTimeout(()=>selection(e),0));
 export function toggleClip(){requireCopy();clipMode=!clipMode;$('clip').classList.toggle('active',clipMode);$('viewer').classList.toggle('clipMode',clipMode);}
@@ -237,7 +238,8 @@ export async function extract(){
   requireCopy();const spec=await inputDialog(T('提取页码，例如 5, 1–3','Extract pages, e.g. 5, 1–3'),String(current()));if(spec===null)return;
   const id=S.id,range=parsePages(spec,S.doc.numPages).join(','),bytes=await folio.read(id),worker=new Worker(new URL('./qpdf-worker.js',import.meta.url));
   try{
-    const out=await new Promise((resolve,reject)=>{worker.onmessage=({data})=>data.error?reject(Error(data.error)):resolve(data.out);worker.onerror=e=>reject(Error(e.message));worker.postMessage({bytes,password,range});});
+    const wasm=await (await fetch(new URL('../assets/qpdf/qpdf.wasm',import.meta.url))).arrayBuffer();
+    const out=await new Promise((resolve,reject)=>{worker.onmessage=({data})=>data.error?reject(Error(data.error)):resolve(data.out);worker.onerror=e=>reject(Error(e.message));worker.postMessage({bytes,password,range,wasm},[wasm]);});
     const verify=loadTask(out.slice());try{const doc=await verify.promise;if(doc.numPages!==range.split(',').length)throw Error('Page count mismatch');}finally{await verify.destroy();}
     await folio.extract(id,out);
   }finally{worker.terminate();}
