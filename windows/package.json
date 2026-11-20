@@ -1,0 +1,54 @@
+{
+  "name": "folio-windows",
+  "productName": "Folio",
+  "version": "1.1.0",
+  "description": "Folio research PDF reader for Windows",
+  "author": "Folio",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "prepare:assets": "node scripts/assets.cjs",
+    "start": "npm run prepare:assets && electron .",
+    "test": "node --test test/*.test.cjs",
+    "dist": "npm run prepare:assets && electron-builder --win nsis zip --x64",
+    "test:ui": "node test/smoke.cjs"
+  },
+  "devDependencies": {
+    "@jspawn/qpdf-wasm": "0.0.2",
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0",
+    "fabric": "7.4.0",
+    "pdfjs-dist": "6.5.438",
+    "playwright-core": "1.65.1"
+  },
+  "build": {
+    "appId": "app.folio.reader.windows",
+    "asar": true,
+    "directories": {
+      "output": "../dist/windows"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "artifactName": "Folio-${version}-win-${arch}.${ext}",
+      "signExecutable": false,
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "artifactName": "FolioSetup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "fileAssociations": [
+      {
+        "ext": "pdf",
+        "name": "PDF document",
+        "role": "Viewer"
+      }
+    ]
+  }
+}

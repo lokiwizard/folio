@@ -1,0 +1,17 @@
+# Folio for Windows
+
+Windows x64 的桌面客户端。安装版为 `FolioSetup-1.1.0-x64.exe`，便携版请完整解压 `Folio-1.1.0-win-x64.zip` 后启动 Folio.exe。PDF.js、字体映射、KaTeX 和 qpdf 随程序分发。阅读与导出可离线使用。
+
+Ctrl+O 打开文件，Ctrl+F 查找，Ctrl+L 定位，Ctrl+D 添加书签，Ctrl+[ 返回，Ctrl+P 打印。右上角“框选图表”可将区域固定在右侧。点便签预览图可标注，拖入“问 AI”可引用原始裁图。Ctrl+Enter 发送问题。每篇论文按 PDF 文件内容识别，阅读记录存放在用户应用数据目录，API 密钥由 Electron safeStorage 调用 Windows DPAPI 加密。
+
+## 构建
+
+在本目录安装 Node.js 24 后运行：
+
+```sh
+npm ci
+npm test
+npm run dist -- --publish never
+```
+
+输出位于仓库的 `dist/windows/`。运行 `npm run start` 开发调试。执行 `npm run prepare:assets` 后，`npm run test:ui` 使用临时用户目录、真实窗口和样例 PDF 做回归。`FOLIO_TEST_EXE` 可指定已安装的 Folio.exe。Windows 工作流会构建、静默安装并测试已安装的程序。

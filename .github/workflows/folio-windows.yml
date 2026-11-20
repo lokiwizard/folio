@@ -1,0 +1,43 @@
+name: Folio Windows
+on:
+  workflow_dispatch:
+  push:
+    branches: [windows/folio-v1.1]
+    paths: ['windows/**', '.github/workflows/folio-windows.yml', 'Resources/Math/**', 'Tests/Fixtures/**']
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist -- --publish never
+      - name: Install the Windows package
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem ../dist/windows/FolioSetup-*-x64.exe -ErrorAction Stop | Select-Object -First 1
+          $installDir = Join-Path $env:RUNNER_TEMP 'FolioInstalled'
+          $process = Start-Process -FilePath $setup.FullName -ArgumentList '/S',('/D=' + $installDir) -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode)" }
+          $exe = Join-Path $installDir 'Folio.exe'
+          if (!(Test-Path $exe)) { throw 'Installed executable missing' }
+          "FOLIO_TEST_EXE=$exe" | Out-File -Append $env:GITHUB_ENV -Encoding utf8
+      - name: Test the installed application
+        run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Folio-Windows-x64
+          path: |
+            dist/windows/FolioSetup-*-x64.exe
+            dist/windows/Folio-*-win-x64.zip
