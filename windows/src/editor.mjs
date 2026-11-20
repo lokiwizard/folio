@@ -12,7 +12,7 @@ import {
   FabricObject,
   classRegistry,
 } from '../assets/fabric.mjs';
-import { S, T, el, btn, action, icon, iconButton, row, modal, pageLabel, save, guard } from './ui.mjs';
+import { S, T, el, btn, action, icon, iconButton, modal, pageLabel, save, guard } from './ui.mjs';
 import { renderCrop } from './reader.mjs';
 FabricObject.customProperties = ['label', 'labelSize', 'arrow', 'minimumBoxHeight'];
 function shapeLabel(ctx, o) {
@@ -145,7 +145,8 @@ export async function editor(card, refresh) {
   const size = angle % 180 ? { width: oldSize.height, height: oldSize.width } : oldSize;
   const surface = el('canvas'),
     paper = el('img', { class: 'markupPaper', src: base.toDataURL(), alt: '', draggable: false });
-  const stage = el('div', { class: 'markupStage', tabIndex: 0 }, paper, surface);
+  const textFrame = el('div', { class: 'markupTextFrame', hidden: true });
+  const stage = el('div', { class: 'markupStage', tabIndex: 0 }, paper, surface, textFrame);
   const toolStrip = el('div', { class: 'markupTools' }),
     properties = el('div', { class: 'markupProperties' });
   const foot = el('footer', { class: 'markupFooter' });
@@ -187,7 +188,7 @@ export async function editor(card, refresh) {
   let tool = 'select',
     start,
     draft,
-    labelEditor,
+    textEditor,
     panning,
     spaceDown = false,
     restoring = false;
@@ -251,6 +252,12 @@ export async function editor(card, refresh) {
         change(prop, Math.max(min, Math.min(max, input.valueAsNumber)));
       },
     });
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter' && textEditor) {
+        e.preventDefault();
+        textEditor.input.focus();
+      }
+    };
     return el('label', { class: 'markupField' }, el('span', { textContent: name }), input);
   };
   const lineWidth = number(T('线宽', 'Width'), 1, 32, 'width'),
@@ -262,9 +269,10 @@ export async function editor(card, refresh) {
     el('option', { value: 'dash', textContent: T('虚线', 'Dashed') })
   );
   const labelButton = action('text-cursor-input', T('形状文字', 'Shape text'), () =>
-    editLabel(scene.getActiveObject())
+    editText(scene.getActiveObject())
   );
   const remove = iconButton('trash-2', T('删除标注', 'Delete markup'), () => {
+    endText();
     const objects = scene.getActiveObjects();
     if (!objects.length) return;
     scene.discardActiveObject();
@@ -312,7 +320,8 @@ export async function editor(card, refresh) {
       o.hasBorders = false;
       o.perPixelTargetFind = true;
     }
-    if (o instanceof Textbox) o.hiddenTextareaContainer = stage;
+    // Text entry uses the visible native field inside this dialog, including IME composition.
+    if (o instanceof Textbox) o.editable = false;
   }
   if (card.drawing) {
     await scene.loadFromJSON(card.drawing);
@@ -338,7 +347,7 @@ export async function editor(card, refresh) {
     redo.disabled = !future.length;
   }
   function record() {
-    if (restoring || draft) return;
+    if (restoring || draft || textEditor) return;
     const json = scene.toJSON();
     if (JSON.stringify(json) === JSON.stringify(last)) return;
     history.push(last);
@@ -373,7 +382,7 @@ export async function editor(card, refresh) {
     });
     zoomLabel.value = Math.round((scale / fitScale()) * 100) + '%';
     scene.requestRenderAll();
-    positionLabel();
+    positionField();
   }
   const fitScale = () =>
     Math.max(
@@ -426,6 +435,7 @@ export async function editor(card, refresh) {
     endText();
     if (start) {
       if (draft) scene.remove(draft);
+      textFrame.hidden = true;
       start = null;
       draft = null;
     }
@@ -454,7 +464,9 @@ export async function editor(card, refresh) {
     lineWidth.hidden = idle || text;
     dash.hidden = idle || text;
     fontSize.hidden = idle || (!text && !label);
-    labelButton.hidden = !isLabel(o);
+    labelButton.hidden = !isLabel(o) && !(o instanceof Textbox);
+    labelButton.lastChild.textContent =
+      o instanceof Textbox ? T('编辑文字', 'Edit text') : T('形状文字', 'Shape text');
     remove.hidden = !o;
     hint.hidden = !idle;
     hint.textContent = T(
@@ -519,57 +531,121 @@ export async function editor(card, refresh) {
       record();
     }
     sync();
+    positionField();
+    if (textEditor && document.activeElement?.matches('.swatch'))
+      textEditor.input.focus({ preventScroll: true });
     scene.requestRenderAll();
   }
-  function positionLabel() {
-    if (!labelEditor) return;
-    const { o, input } = labelEditor;
-    const m = util.multiplyTransformMatrices(scene.viewportTransform, o.calcTransformMatrix());
+  function positionField() {
+    if (!textEditor) return;
+    const { o, input } = textEditor;
+    const box = o instanceof Textbox;
+    const matrix = util.multiplyTransformMatrices(scene.viewportTransform, o.calcTransformMatrix());
     Object.assign(input.style, {
       width: o.width + 'px',
       height: o.height + 'px',
-      fontSize: (o.labelSize || 24) + 'px',
-      color: o.stroke,
-      transform: 'matrix(' + m.join(',') + ') translate(-50%,-50%)',
+      fontSize: (box ? o.fontSize : o.labelSize || 24) + 'px',
+      color: box ? o.fill : o.stroke,
+      transform:
+        'matrix(' + matrix.join(',') + ') translate(' + -o.width / 2 + 'px,' + -o.height / 2 + 'px)',
     });
+    if (box) {
+      input.style.fontFamily = o.fontFamily;
+      input.style.lineHeight = String(o.lineHeight);
+      input.style.textAlign = o.textAlign;
+      input.style.fontStyle = o.fontStyle;
+      input.style.fontWeight = String(o.fontWeight);
+      input.style.height = Math.max(o.height, input.scrollHeight) + 'px';
+    }
   }
-  function editLabel(o) {
-    if (!isLabel(o) || labelEditor) return;
+  function editText(o, event, created = false) {
+    if (!(o instanceof Textbox || isLabel(o))) return;
+    if (textEditor?.o === o) {
+      textEditor.input.focus();
+      return;
+    }
+    endText();
+    const box = o instanceof Textbox;
+    const title = box ? T('文本框内容', 'Text box content') : T('形状文字', 'Shape text');
     const input = el('textarea', {
-      class: 'shapeLabelInput',
-      value: o.label || '',
-      title: T('形状文字', 'Shape text'),
+      class: box ? 'markupTextInput' : 'shapeLabelInput',
+      value: (box ? o.text : o.label) || '',
+      title,
+      spellcheck: false,
+      placeholder: box ? T('输入文字…', 'Type here…') : '',
     });
-    labelEditor = { input, o };
+    input.setAttribute('aria-label', title);
+    textEditor = {
+      o,
+      input,
+      created,
+      originalStyle: box
+        ? { fill: o.fill, fontSize: o.fontSize }
+        : { stroke: o.stroke, labelSize: o.labelSize },
+    };
     stage.append(input);
-    positionLabel();
-    input.focus();
-    input.select();
-    input.onblur = () => finishLabel(true);
+    positionField();
+    input.focus({ preventScroll: true });
+    if (box && event && o.text) {
+      const index = o.getSelectionStartFromPointer(event);
+      const offset = o.graphemeSplit(o.text).slice(0, index).join('').length;
+      input.setSelectionRange(offset, offset);
+    } else if (box) input.setSelectionRange(input.value.length, input.value.length);
+    else input.select();
+    status.textContent = T(
+      'Enter 换行 · Ctrl+Enter 完成 · Esc 取消',
+      'Enter for a new line · Ctrl+Enter to finish · Esc to cancel'
+    );
+    input.oninput = positionField;
+    input.onblur = (e) => {
+      if (!properties.contains(e.relatedTarget)) endText();
+    };
     input.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
         e.preventDefault();
-        e.stopPropagation();
-        finishLabel(e.key !== 'Escape');
+        endText(e.key !== 'Escape');
         stage.focus();
       }
     };
   }
-  function finishLabel(commit) {
-    if (!labelEditor) return;
-    const { o, input } = labelEditor;
-    labelEditor = null;
+  function endText(commit = true) {
+    if (!textEditor) return;
+    const { o, input, created, originalStyle } = textEditor;
+    textEditor = null;
     input.onblur = null;
-    if (commit) o.set({ label: input.value, dirty: true });
+    const text = input.value;
     input.remove();
+    if (!commit) o.set(originalStyle);
+    if (o instanceof Textbox) {
+      if ((created && !commit) || (commit && !text.trim())) {
+        if (scene.getActiveObject() === o) scene.discardActiveObject();
+        scene.remove(o);
+      } else if (commit && o.text !== text) {
+        o.set({ splitByGrapheme: true, text });
+        o.initDimensions();
+      }
+    } else if (commit) o.set({ label: text, dirty: true });
+    o.setCoords();
     scene.requestRenderAll();
-    if (commit) record();
+    record();
+    sync();
   }
-  function endText() {
-    finishLabel(true);
-    const active = scene.getActiveObject();
-    if (active?.isEditing) active.exitEditing();
-  }
+  d.addEventListener('cancel', (e) => {
+    if (textEditor) e.preventDefault();
+  });
+  properties.addEventListener('focusout', (e) => {
+    if (textEditor && e.relatedTarget !== textEditor.input && !properties.contains(e.relatedTarget))
+      endText();
+  });
+  stage.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (textEditor && e.target !== textEditor.input) endText();
+    },
+    true
+  );
   function inside(p) {
     return p.x >= 0 && p.y >= 0 && p.x <= size.width && p.y <= size.height;
   }
@@ -614,6 +690,8 @@ export async function editor(card, refresh) {
           ...style,
           fill: defaults.color,
           stroke: null,
+          strokeWidth: 0,
+          splitByGrapheme: true,
           fontSize: defaults.font,
           fontFamily: 'Segoe UI, sans-serif',
         });
@@ -628,6 +706,16 @@ export async function editor(card, refresh) {
     else if (tool === 'text') {
       draft.set({ left, top, width: Math.max(25, width), minimumBoxHeight: height });
       draft.initDimensions();
+      const matrix = util.multiplyTransformMatrices(
+        scene.viewportTransform,
+        draft.calcTransformMatrix()
+      );
+      Object.assign(textFrame.style, {
+        width: draft.width + 'px',
+        height: draft.height + 'px',
+        transform: 'matrix(' + matrix.join(',') + ') translate(-50%,-50%)',
+      });
+      textFrame.hidden = false;
     } else draft.set({ left, top, width, height });
     draft.setCoords();
     scene.requestRenderAll();
@@ -642,21 +730,32 @@ export async function editor(card, refresh) {
   });
   scene.on('mouse:up', ({ scenePoint, e }) => {
     if (!start) return;
-    if (tool === 'text' && !draft)
-      updateDraft(
-        new Point(Math.min(size.width, start.x + 160 / scale), start.y + defaults.font * 1.35)
-      );
-    else if (draft) updateDraft(endpoint(scenePoint, e.shiftKey));
+    if (tool === 'text' && !draft) {
+      const existing = [...scene.getObjects()]
+        .reverse()
+        .find((o) => o instanceof Textbox && o.containsPoint(start));
+      if (existing) {
+        start = null;
+        setTool('select');
+        scene.setActiveObject(existing);
+        editText(existing, e);
+        scene.requestRenderAll();
+        return;
+      }
+      const width = Math.min(size.width, 160 / scale),
+        height = Math.min(size.height, defaults.font * 1.35);
+      start = new Point(Math.min(start.x, size.width - width), Math.min(start.y, size.height - height));
+      updateDraft(new Point(start.x + width, start.y + height));
+    } else if (draft) updateDraft(endpoint(scenePoint, e.shiftKey));
     const o = draft;
+    textFrame.hidden = true;
     draft = null;
     start = null;
     if (!o) return;
     setTool('select');
     scene.setActiveObject(o);
-    if (o instanceof Textbox) {
-      o.enterEditing();
-      o.hiddenTextarea?.focus();
-    } else record();
+    if (o instanceof Textbox) editText(o, null, true);
+    else record();
     scene.requestRenderAll();
   });
   scene.on('path:created', ({ path }) => {
@@ -667,34 +766,9 @@ export async function editor(card, refresh) {
     scene.requestRenderAll();
   });
   scene.on('object:modified', record);
-  let priorText = '';
-  scene.on('text:editing:entered', ({ target }) => {
-    priorText = target.text;
-    target.hiddenTextarea?.addEventListener(
-      'keydown',
-      (e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          target.set('text', priorText);
-          target.exitEditing();
-          stage.focus();
-        }
-      },
-      { capture: true }
-    );
-  });
-  scene.on('text:editing:exited', ({ target }) => {
-    if (!target.text.trim()) {
-      scene.discardActiveObject();
-      scene.remove(target);
-    }
-    record();
-    sync();
-  });
   for (const event of ['selection:created', 'selection:updated', 'selection:cleared'])
     scene.on(event, sync);
-  scene.on('mouse:dblclick', ({ target }) => editLabel(target));
+  scene.on('mouse:dblclick', ({ target, e }) => editText(target, e));
   stage.addEventListener(
     'wheel',
     (e) => {
@@ -730,13 +804,15 @@ export async function editor(card, refresh) {
     },
     true
   );
-  stage.addEventListener('pointermove', (e) => {
+  function panToPointer(e) {
     if (!panning) return;
     tx = panning.tx + e.clientX - panning.x;
     ty = panning.ty + e.clientY - panning.y;
     fitted = false;
     view();
-  });
+  }
+  stage.addEventListener('pointermove', panToPointer);
+  stage.addEventListener('pointerup', panToPointer);
   stage.addEventListener('lostpointercapture', () => {
     panning = null;
     stage.classList.remove('panning');
@@ -745,15 +821,6 @@ export async function editor(card, refresh) {
     const o = scene.getActiveObject(),
       mod = e.ctrlKey || e.metaKey,
       key = e.key.toLowerCase();
-    if (o?.isEditing) {
-      if ((mod && key === 'enter') || key === 'escape') {
-        e.preventDefault();
-        if (key === 'escape') o.set('text', priorText);
-        o.exitEditing();
-        stage.focus();
-      }
-      return;
-    }
     if (e.target.matches('input,textarea,select')) return;
     if (e.code === 'Space' && !e.target.matches('button')) {
       e.preventDefault();
@@ -764,6 +831,7 @@ export async function editor(card, refresh) {
     if (key === 'escape' && start) {
       e.preventDefault();
       if (draft) scene.remove(draft);
+      textFrame.hidden = true;
       draft = null;
       start = null;
       scene.requestRenderAll();
@@ -785,9 +853,9 @@ export async function editor(card, refresh) {
     } else if (mod && key === 'c') {
       e.preventDefault();
       copy.click();
-    } else if (!mod && key === 'enter' && isLabel(o)) {
+    } else if (!mod && (key === 'enter' || key === 'f2') && (isLabel(o) || o instanceof Textbox)) {
       e.preventDefault();
-      editLabel(o);
+      editText(o);
     } else if (!mod) {
       const item = names.find((n) => n[3].toLowerCase() === key);
       if (item) setTool(item[0]);

@@ -164,6 +164,7 @@ Object.assign(reader.hooks, {
     ];
   },
   closing: () => {
+    finishMarkup();
     resetChat();
     resetCards();
   },
@@ -407,8 +408,12 @@ window.addEventListener(
 window.addEventListener('resize', layout);
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change', apply);
 folio.on('open', () => reader.openPaper(() => folio.open(true)).catch(report));
+function finishMarkup() {
+  document.querySelector('dialog.markupSheet[open] .doneButton')?.click();
+}
 folio.on('closing', async () => {
   try {
+    finishMarkup();
     await flush();
     await folio.closed(true);
   } catch (e) {

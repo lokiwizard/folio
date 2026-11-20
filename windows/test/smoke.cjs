@@ -33,7 +33,14 @@ async function run() {
   const readState = async (check) => eventually(async () => check(await state()));
   const app = await _electron.launch({
     executablePath: process.env.FOLIO_TEST_EXE || require('electron'),
-    args: ['--user-data-dir=' + profile, ...(process.env.FOLIO_TEST_EXE ? [] : [root]), pdf],
+    args: [
+      '--user-data-dir=' + profile,
+      ...(process.env.FOLIO_TEST_SCALE
+        ? ['--force-device-scale-factor=' + process.env.FOLIO_TEST_SCALE]
+        : []),
+      ...(process.env.FOLIO_TEST_EXE ? [] : [root]),
+      pdf,
+    ],
     timeout: 35000,
   });
   let win;
@@ -69,10 +76,13 @@ async function run() {
     await button('撤销删除').click();
     await readState((s) => assert.equal(s.cards.length, 2));
     const span = win.locator('.textLayer span').filter({ hasText: 'Unrelated text' }).first();
+    await span.scrollIntoViewIfNeeded();
+    await span.hover();
     const lineBox = await span.boundingBox();
     await win.mouse.move(lineBox.x + 1, lineBox.y + lineBox.height / 2);
     await win.mouse.down();
     await win.mouse.move(lineBox.x + lineBox.width - 1, lineBox.y + lineBox.height / 2, { steps: 12 });
+    await win.waitForFunction(() => getSelection().toString().includes('nrelated'));
     await win.mouse.up();
     await button('默认高亮').click();
     await readState((s) => assert.ok(s.cards.some((c) => !c.source && c.text.includes('nrelated'))));
@@ -170,27 +180,12 @@ async function run() {
     await win.mouse.up();
     await win.keyboard.up('Space');
     const moved = await draw.boundingBox();
-    assert.ok(Math.abs(moved.x - enlarged.x - 30) < 2);
+    assert.ok(Math.abs(moved.x - enlarged.x - 30) < 2, 'Pan delta = ' + (moved.x - enlarged.x));
     await button('全图').click();
     console.log(
       'PASS all drawing tools, constrained shape, independent style edits, inline shape labels, undo/redo, zoom and pan'
     );
-    await button('文本框').click();
-    await win.mouse.move(surface.x + surface.width * 0.25, surface.y + surface.height * 0.32);
-    await win.mouse.down();
-    await win.mouse.move(surface.x + surface.width * 0.68, surface.y + surface.height * 0.7, {
-      steps: 6,
-    });
-    await win.mouse.up();
-    await win.keyboard.insertText('Figure A');
-    await win.keyboard.press('Control+Enter');
-    await readState((s) => {
-      const text = s.cards
-        .find((c) => c.kind === 'pin')
-        .drawing.objects.find((o) => o.type === 'FolioTextBox');
-      assert.equal(text.text, 'Figure A');
-      assert.ok(text.minimumBoxHeight > 12);
-    });
+    await require('./text-box.cjs')({ win, app, button, readState });
     if (process.env.FOLIO_SCREENSHOT_DIR) {
       await fs.mkdir(process.env.FOLIO_SCREENSHOT_DIR, { recursive: true });
       await win.screenshot({
@@ -425,14 +420,66 @@ async function run() {
         root,
         output: process.env.FOLIO_SCREENSHOT_DIR,
       });
+    // Open a card written with the previous text wrapping settings. Its PDF page
+    // has been rotated since capture. Quit with unconfirmed text still in focus.
+    const legacy = await state();
+    const legacyPin = legacy.cards.find((c) => c.kind === 'pin');
+    const legacyBox = legacyPin.drawing.objects.find((o) => o.type === 'FolioTextBox');
+    legacyBox.text = 'Legacy';
+    legacyBox.splitByGrapheme = false;
+    legacyBox.strokeWidth = 4;
+    await fs.writeFile(statePath, JSON.stringify(legacy));
+    await app.evaluate(({ dialog }, pdf) => {
+      dialog.showOpenDialog = async () => ({ filePaths: [pdf] });
+    }, pdf);
+    await win.keyboard.press('Control+o');
+    await win.locator('.card img[data-id="' + legacyPin.id + '"]').click();
+    await win.locator('.markupStage .upper-canvas').waitFor();
+    await win.waitForFunction(
+      () =>
+        document.querySelector('.markupPaper').getBoundingClientRect().width > 40 &&
+        document.querySelector('.upper-canvas').clientWidth ===
+          document.querySelector('.markupStage').clientWidth
+    );
+    const point = await win.evaluate(async () => {
+      const { S } = await import('./ui.mjs');
+      const pin = S.state.cards.find((c) => c.kind === 'pin'),
+        box = pin.drawing.objects.find((o) => o.type === 'FolioTextBox');
+      const paper = document.querySelector('.markupPaper'),
+        area = paper.getBoundingClientRect();
+      const x = box.left + box.width / 2,
+        y = box.top + box.height / 2;
+      return {
+        x: area.x + (1 - y / pin.drawingSize.height) * area.width,
+        y: area.y + (x / pin.drawingSize.width) * area.height,
+      };
+    });
+    await win.mouse.dblclick(point.x, point.y);
+    const activeInput = win.locator('.markupTextInput');
+    assert.equal(await activeInput.inputValue(), 'Legacy');
+    await activeInput.fill('关闭时保存的中文');
+    await Promise.all([
+      win.waitForEvent('close'),
+      app.evaluate(({ BrowserWindow }) => {
+        setTimeout(() => BrowserWindow.getAllWindows()[0].close(), 0);
+      }),
+    ]);
+    await readState((s) => {
+      const pin = s.cards.find((c) => c.kind === 'pin');
+      assert.equal(pin.rotation, 90);
+      assert.equal(pin.drawing.objects.find((o) => o.type === 'FolioTextBox').text, '关闭时保存的中文');
+    });
+    console.log(
+      'PASS edited legacy text after page rotation and persisted active typing on window close'
+    );
     assert.deepEqual(errors, []);
     console.log('PASS original file is byte-identical; no renderer errors');
   } catch (e) {
-    if (win)
+    if (win && !win.isClosed())
       console.error('Window:', (await win.locator('body').innerText({ timeout: 2000 })).slice(-2400));
     throw e;
   } finally {
-    await app.close();
+    if (!win?.isClosed()) await app.close();
     await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
   }
 }

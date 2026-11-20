@@ -1667,6 +1667,37 @@ textarea {
 .markupStage.panning canvas {
   cursor: grabbing !important;
 }
+.markupTextFrame,
+.markupTextInput,
+.markupTextInput:focus-visible {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  transform-origin: 0 0;
+  resize: none;
+  outline: 2px solid #397bd6;
+  outline-offset: 0;
+  border: 0;
+  border-radius: 0;
+}
+.markupTextFrame {
+  pointer-events: none;
+  background: #6f9fea17;
+}
+.markupTextInput {
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  word-break: break-all;
+  white-space: pre-wrap;
+  background: #fff;
+  color-scheme: light;
+  cursor: text;
+}
+.markupTextInput::placeholder {
+  color: #69717b;
+}
 .shapeLabelInput {
   position: absolute;
   top: 0;

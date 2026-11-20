@@ -1,7 +1,7 @@
 {
   "name": "folio-windows",
   "productName": "Folio",
-  "version": "1.1.1",
+  "version": "1.1.0",
   "description": "Folio research PDF reader for Windows",
   "author": "Folio",
   "private": true,
@@ -10,7 +10,7 @@
     "prepare:assets": "node scripts/assets.cjs",
     "start": "npm run prepare:assets && electron .",
     "test": "node --test test/*.test.cjs",
-    "dist": "npm run prepare:assets && electron-builder --win nsis zip --x64",
+    "dist": "npm run prepare:assets && electron-builder --win nsis --x64 --publish never",
     "test:ui": "node test/smoke.cjs"
   },
   "devDependencies": {
